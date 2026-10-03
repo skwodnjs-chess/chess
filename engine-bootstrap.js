@@ -1,6 +1,6 @@
 (() => {
   const NativeWorker = window.Worker;
-  const STOCKFISH_WASM_URL = "https://cdn.jsdelivr.net/npm/stockfish@19.0.0/bin/stockfish-19-lite-single.wasm";
+  const STOCKFISH_WASM_URL = "https://cdn.jsdelivr.net/npm/stockfish@19.0.0/bin/stockfish-19-single.wasm";
   const INITIAL_CLOCK_MS = 120_000;
   const INCREMENT_MS = 1_000;
 
@@ -39,9 +39,9 @@
           this.__searchStartedAt = null;
         }
 
-        // app.js currently emits `go movetime 350` as the search trigger.
-        // Replace it before it reaches Stockfish with a real 120+1 clock.
-        // Stockfish then decides how much time to spend on each move.
+        // app.js emits a placeholder movetime command as a search trigger.
+        // Replace it with a real 120+1 clock so Stockfish's own time manager
+        // decides how long to spend on each move.
         if (/^go movetime \d+$/.test(message)) {
           const clock = Math.max(1, Math.round(this.__clockMs));
           this.__searchStartedAt = performance.now();
@@ -58,7 +58,7 @@
 
   window.Worker = ChessWorker;
   window.__CHESS_ENGINE_INFO__ = Object.freeze({
-    engine: "Stockfish 19 lite single-threaded WASM",
+    engine: "Stockfish 19 full single-threaded WASM",
     timeControl: "120+1",
     nativeEloMin: 1320,
     nativeEloMax: 3190
