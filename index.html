@@ -3,37 +3,62 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="브라우저에서 Stockfish AI와 플레이하는 간단한 체스 게임">
+  <meta name="description" content="브라우저에서 Stockfish AI와 플레이하는 체스 게임">
   <title>skwodnjs Chess</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <main class="app-shell">
-    <section class="game-panel" aria-labelledby="page-title">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">SKWODNJS CHESS</p>
-          <h1 id="page-title">Chess</h1>
-        </div>
+    <aside class="sidebar" aria-label="게임 목록">
+      <div class="sidebar-brand">
+        <span class="brand-mark" aria-hidden="true">♞</span>
+        <span>Chess</span>
+      </div>
+
+      <button id="new-game-button" class="new-game-button" type="button">
+        <span class="new-game-icon" aria-hidden="true">＋</span>
+        <span>새 게임</span>
+      </button>
+
+      <section class="sidebar-section">
+        <p class="sidebar-label">게임</p>
+        <nav id="game-list" class="game-list" aria-label="저장된 게임">
+          <button class="game-item active" type="button">
+            <span class="game-item-title">현재 게임</span>
+            <span class="game-item-meta">AI · 1000</span>
+          </button>
+        </nav>
+      </section>
+
+      <div class="sidebar-spacer"></div>
+      <button id="admin-button" class="admin-button" type="button" title="관리자 모드">
+        <span aria-hidden="true">⌕</span>
+        <span>관리자</span>
+      </button>
+    </aside>
+
+    <section class="workspace" aria-labelledby="page-title">
+      <header class="workspace-header">
+        <h1 id="page-title">현재 게임</h1>
         <div class="engine-badge" aria-label="AI 난이도">AI · Elo 1000</div>
       </header>
 
-      <div class="controls" aria-label="게임 설정">
-        <button id="color-button" class="button button-secondary button-color" type="button" title="플레이 색상 전환">백으로 플레이</button>
-        <button id="start-button" class="button button-primary button-start" type="button" title="게임 시작">게임 시작</button>
-        <button id="reset-button" class="button button-ghost button-reset" type="button" title="게임 초기화">Reset</button>
-      </div>
+      <div class="game-stage">
+        <div class="controls" aria-label="게임 설정">
+          <button id="color-button" class="button button-secondary button-color" type="button" title="플레이 색상 전환">백으로 플레이</button>
+          <button id="start-button" class="button button-primary button-start" type="button" title="게임 시작">게임 시작</button>
+          <button id="reset-button" class="button button-ghost button-reset" type="button" title="게임 초기화">Reset</button>
+        </div>
 
-      <div class="status-row">
-        <span id="status-dot" class="status-dot"></span>
-        <p id="status" class="status" aria-live="polite">색상을 선택한 뒤 게임을 시작하세요.</p>
-      </div>
+        <div id="status-row" class="status-row" aria-live="polite">
+          <span id="status-dot" class="status-dot"></span>
+          <p id="status" class="status"></p>
+        </div>
 
-      <div class="board-wrap">
-        <div id="board" class="board" role="grid" aria-label="체스판"></div>
+        <div class="board-wrap">
+          <div id="board" class="board" role="grid" aria-label="체스판"></div>
+        </div>
       </div>
-
-      <footer class="hint">말을 클릭한 뒤 이동할 칸을 클릭하세요. 프로모션은 현재 자동으로 퀸을 선택합니다.</footer>
     </section>
   </main>
 
