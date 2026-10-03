@@ -4,6 +4,20 @@
   const INITIAL_CLOCK_MS = 120_000;
   const INCREMENT_MS = 1_000;
 
+  function showEngineError() {
+    const row = document.querySelector("#status-row");
+    const status = document.querySelector("#status");
+    const dot = document.querySelector("#status-dot");
+    const badge = document.querySelector("#engine-badge");
+    if (status) status.textContent = "Stockfish 엔진을 불러오지 못했습니다. 새로고침 후 다시 시도하세요.";
+    if (row) row.classList.add("visible");
+    if (dot) dot.classList.remove("active", "thinking");
+    if (badge) {
+      badge.textContent = "AI · 엔진 오류";
+      badge.setAttribute("aria-label", "Stockfish 엔진 오류");
+    }
+  }
+
   class ChessWorker extends NativeWorker {
     constructor(scriptURL, options) {
       const url = new URL(String(scriptURL), document.baseURI);
@@ -22,6 +36,15 @@
       this.__searchStartedAt = null;
 
       if (isStockfish) {
+        // Register before app.js adds its own error handler. If the real engine
+        // fails to load, do not silently fall back to a weak heuristic player.
+        super.addEventListener("error", (event) => {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          this.__searchStartedAt = null;
+          showEngineError();
+        });
+
         super.addEventListener("message", (event) => {
           const payload = String(event.data ?? "");
           for (const line of payload.split(/\r?\n/)) {
@@ -54,8 +77,9 @@
           this.__sideToMove = parts[3] === "b" ? "b" : "w";
         }
 
-        // The app still emits a placeholder movetime command. Replace it with
-        // a real 120+1 UCI clock so Stockfish decides its own thinking time.
+        // app.js still emits a placeholder movetime command. Replace it before
+        // it reaches Stockfish with a real 120+1 clock command. Stockfish then
+        // decides how long to spend on each move via its own time manager.
         if (/^go movetime \d+$/.test(message)) {
           const clock = Math.max(1, Math.round(this.__clockMs));
           this.__searchStartedAt = performance.now();
