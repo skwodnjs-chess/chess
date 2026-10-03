@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="브라우저에서 Stockfish AI와 플레이하는 간단한 체스 게임">
+  <title>skwodnjs Chess</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="game-panel" aria-labelledby="page-title">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">SKWODNJS CHESS</p>
+          <h1 id="page-title">Chess</h1>
+        </div>
+        <div class="engine-badge" aria-label="AI 난이도">AI · Elo 1000</div>
+      </header>
+
+      <div class="controls" aria-label="게임 설정">
+        <button id="color-button" class="button button-secondary" type="button">백으로 플레이</button>
+        <button id="start-button" class="button button-primary" type="button">게임 시작</button>
+        <button id="reset-button" class="button button-ghost" type="button">Reset</button>
+      </div>
+
+      <div class="status-row">
+        <span id="status-dot" class="status-dot"></span>
+        <p id="status" class="status" aria-live="polite">색상을 선택한 뒤 게임을 시작하세요.</p>
+      </div>
+
+      <div class="board-wrap">
+        <div id="board" class="board" role="grid" aria-label="체스판"></div>
+      </div>
+
+      <footer class="hint">말을 클릭한 뒤 이동할 칸을 클릭하세요. 프로모션은 현재 자동으로 퀸을 선택합니다.</footer>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
