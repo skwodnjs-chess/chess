@@ -5,6 +5,9 @@ const colorButton = document.querySelector("#color-button");
 const startButton = document.querySelector("#start-button");
 const resetButton = document.querySelector("#reset-button");
 const newGameButton = document.querySelector("#new-game-button");
+const gameList = document.querySelector("#game-list");
+const pageTitle = document.querySelector("#page-title");
+const engineBadge = document.querySelector("#engine-badge");
 const statusRow = document.querySelector("#status-row");
 const statusElement = document.querySelector("#status");
 const statusDot = document.querySelector("#status-dot");
@@ -16,12 +19,24 @@ const historyPrevButton = document.querySelector("#history-prev");
 const historyNextButton = document.querySelector("#history-next");
 const historyLastButton = document.querySelector("#history-last");
 const historyPosition = document.querySelector("#history-position");
+const newGameDialog = document.querySelector("#new-game-dialog");
+const newGameForm = document.querySelector("#new-game-form");
+const newGameClose = document.querySelector("#new-game-close");
+const newGameCancel = document.querySelector("#new-game-cancel");
+const gameNameInput = document.querySelector("#game-name-input");
+const aiEnabledInput = document.querySelector("#ai-enabled-input");
+const ratingField = document.querySelector("#rating-field");
+const ratingSelect = document.querySelector("#rating-select");
+const ratingCustomInput = document.querySelector("#rating-custom-input");
 
 const pieceGlyphs = {
   w: { k: "♔", q: "♕", r: "♖", b: "♗", n: "♘", p: "♙" },
   b: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" }
 };
 
+let gameIdCounter = 1;
+let games = [makeGameRecord("현재 게임", true, 1000)];
+let activeGameId = games[0].id;
 let game = new Chess();
 let playerColor = "w";
 let started = false;
@@ -34,6 +49,28 @@ let moveHistory = [];
 let historyIndex = 0;
 let liveStatus = { text: "", mode: "idle" };
 let resultState = null;
+
+function makeGameRecord(name, aiEnabled, rating) {
+  const initial = new Chess();
+  return {
+    id: `game-${gameIdCounter++}`,
+    name,
+    aiEnabled,
+    rating,
+    playerColor: "w",
+    pgn: "",
+    positionHistory: [initial.fen()],
+    moveHistory: [],
+    historyIndex: 0,
+    started: false,
+    liveStatus: { text: "", mode: "idle" },
+    resultState: null
+  };
+}
+
+function activeGame() {
+  return games.find((item) => item.id === activeGameId) ?? games[0];
+}
 
 class StockfishClient {
   constructor() {
@@ -75,7 +112,6 @@ class StockfishClient {
       if (!line) continue;
       if (line === "uciok") {
         this.worker?.postMessage("setoption name MultiPV value 5");
-        this.worker?.postMessage("setoption name Skill Level value 20");
         this.worker?.postMessage("isready");
         continue;
       }
@@ -88,9 +124,9 @@ class StockfishClient {
       if (line.startsWith("info ")) this.captureCandidate(line);
       if (line.startsWith("bestmove ")) {
         const fallback = line.split(/\s+/)[1];
-        const { resolve, legalMoves } = this.pending;
+        const { resolve, legalMoves, rating, limited } = this.pending;
         this.pending = null;
-        resolve(this.chooseApprox1000Move(fallback, legalMoves));
+        resolve(this.chooseMove(fallback, legalMoves, rating, limited));
       }
     }
   }
@@ -105,12 +141,15 @@ class StockfishClient {
     this.candidates.set(Number(rank[1]), { move: pv[1], score });
   }
 
-  chooseApprox1000Move(fallback, legalMoves) {
-    if (legalMoves.length > 1 && Math.random() < 0.12) return legalMoves[Math.floor(Math.random() * legalMoves.length)];
+  chooseMove(fallback, legalMoves, rating, limited) {
+    if (limited) return legalMoves.includes(fallback) ? fallback : legalMoves[0];
+    const mistakeChance = Math.min(0.34, Math.max(0.08, 0.08 + (1200 - rating) / 2200));
+    if (legalMoves.length > 1 && Math.random() < mistakeChance) return legalMoves[Math.floor(Math.random() * legalMoves.length)];
     const candidates = [...this.candidates.values()].filter((candidate) => legalMoves.includes(candidate.move));
     if (!candidates.length) return legalMoves.includes(fallback) ? fallback : legalMoves[0];
     const bestScore = Math.max(...candidates.map((candidate) => candidate.score));
-    const weighted = candidates.map((candidate) => ({ candidate, weight: Math.exp(-(bestScore - candidate.score) / 165) }));
+    const temperature = Math.max(85, 185 - Math.max(0, rating - 600) * 0.08);
+    const weighted = candidates.map((candidate) => ({ candidate, weight: Math.exp(-(bestScore - candidate.score) / temperature) }));
     const total = weighted.reduce((sum, entry) => sum + entry.weight, 0);
     let roll = Math.random() * total;
     for (const entry of weighted) {
@@ -120,13 +159,23 @@ class StockfishClient {
     return weighted[0].candidate.move;
   }
 
-  async move(fen, legalMoves) {
+  async move(fen, legalMoves, rating) {
     this.ensureWorker();
     if (this.failed || !this.worker) throw new Error("Stockfish unavailable");
     await this.readyPromise;
     this.candidates.clear();
+    const limited = rating >= 1320;
+    if (limited) {
+      this.worker.postMessage("setoption name UCI_LimitStrength value true");
+      this.worker.postMessage(`setoption name UCI_Elo value ${Math.min(3190, Math.max(1320, rating))}`);
+      this.worker.postMessage("setoption name MultiPV value 1");
+    } else {
+      this.worker.postMessage("setoption name UCI_LimitStrength value false");
+      this.worker.postMessage("setoption name Skill Level value 0");
+      this.worker.postMessage("setoption name MultiPV value 5");
+    }
     return new Promise((resolve, reject) => {
-      this.pending = { resolve, reject, legalMoves };
+      this.pending = { resolve, reject, legalMoves, rating, limited };
       this.worker.postMessage(`position fen ${fen}`);
       this.worker.postMessage("go movetime 350");
     });
@@ -155,12 +204,81 @@ function viewGame() {
   return isAtLatestPosition() ? game : new Chess(positionHistory[historyIndex]);
 }
 
+function saveActiveGameState() {
+  const record = activeGame();
+  if (!record) return;
+  record.playerColor = playerColor;
+  record.pgn = game.pgn();
+  record.positionHistory = [...positionHistory];
+  record.moveHistory = moveHistory.map((move) => ({ ...move }));
+  record.historyIndex = historyIndex;
+  record.started = started;
+  record.liveStatus = { ...liveStatus };
+  record.resultState = resultState ? { ...resultState } : null;
+}
+
+function loadGameRecord(record) {
+  saveActiveGameState();
+  turnToken += 1;
+  engine.reset();
+  activeGameId = record.id;
+  game = new Chess();
+  if (record.pgn) {
+    try { game.loadPgn(record.pgn); } catch { game = new Chess(); }
+  }
+  playerColor = record.playerColor ?? "w";
+  started = Boolean(record.started);
+  thinking = false;
+  selectedSquare = null;
+  legalTargets.clear();
+  positionHistory = record.positionHistory?.length ? [...record.positionHistory] : [game.fen()];
+  moveHistory = (record.moveHistory ?? []).map((move) => ({ ...move }));
+  historyIndex = Math.min(record.historyIndex ?? positionHistory.length - 1, positionHistory.length - 1);
+  liveStatus = record.liveStatus ? { ...record.liveStatus } : { text: "", mode: "idle" };
+  resultState = record.resultState ? { ...record.resultState } : null;
+  renderGameList();
+  syncGameHeader();
+  syncControls();
+  syncHistoryControls();
+  renderBoard();
+  renderStatus();
+}
+
 function recordMove(move) {
   const followLatest = isAtLatestPosition();
   moveHistory.push({ from: move.from, to: move.to });
   positionHistory.push(game.fen());
   if (followLatest) historyIndex = positionHistory.length - 1;
   syncHistoryControls();
+  saveActiveGameState();
+}
+
+function renderGameList() {
+  gameList.replaceChildren();
+  for (const record of games) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `game-item${record.id === activeGameId ? " active" : ""}`;
+    const title = document.createElement("span");
+    title.className = "game-item-title";
+    title.textContent = record.name;
+    const meta = document.createElement("span");
+    meta.className = "game-item-meta";
+    meta.textContent = record.aiEnabled ? `AI · ${record.rating}` : "2인 플레이";
+    button.append(title, meta);
+    button.addEventListener("click", () => {
+      if (record.id !== activeGameId) loadGameRecord(record);
+    });
+    gameList.append(button);
+  }
+}
+
+function syncGameHeader() {
+  const record = activeGame();
+  pageTitle.textContent = record.name;
+  engineBadge.classList.toggle("no-ai", !record.aiEnabled);
+  engineBadge.textContent = record.aiEnabled ? `AI · Elo ${record.rating}` : "AI 없음";
+  engineBadge.setAttribute("aria-label", record.aiEnabled ? `AI 난이도 Elo ${record.rating}` : "AI 사용 안 함");
 }
 
 function renderBoard() {
@@ -186,7 +304,6 @@ function renderBoard() {
       if (livePosition && legalTargets.has(square)) button.classList.add("legal");
       if (piece) button.classList.add("has-piece");
       if (displayedLastMove && (displayedLastMove.from === square || displayedLastMove.to === square)) button.classList.add("last-move");
-
       if (piece) {
         const span = document.createElement("span");
         span.className = "piece";
@@ -215,11 +332,19 @@ function describeSquare(square, piece) {
   return `${square}, ${piece.color === "w" ? "백" : "흑"} ${names[piece.type]}`;
 }
 
+function canControlPiece(piece) {
+  if (!piece) return false;
+  const record = activeGame();
+  return record.aiEnabled ? piece.color === playerColor && game.turn() === playerColor : piece.color === game.turn();
+}
+
 function handleSquareClick(square) {
-  if (!started || thinking || game.isGameOver() || game.turn() !== playerColor || !isAtLatestPosition()) return;
+  if (!started || thinking || game.isGameOver() || !isAtLatestPosition()) return;
+  const record = activeGame();
+  if (record.aiEnabled && game.turn() !== playerColor) return;
   const piece = game.get(square);
   if (!selectedSquare) {
-    if (piece?.color === playerColor) selectSquare(square);
+    if (canControlPiece(piece)) selectSquare(square);
     return;
   }
   if (square === selectedSquare) {
@@ -227,7 +352,7 @@ function handleSquareClick(square) {
     renderBoard();
     return;
   }
-  if (piece?.color === playerColor) {
+  if (canControlPiece(piece)) {
     selectSquare(square);
     return;
   }
@@ -238,7 +363,9 @@ function handleSquareClick(square) {
   recordMove(move);
   clearSelection();
   renderBoard();
-  if (!updateGameOverStatus()) void requestAiMove();
+  if (updateGameOverStatus()) return;
+  if (record.aiEnabled) void requestAiMove();
+  else setStatus(`${game.turn() === "w" ? "백" : "흑"}의 차례입니다.`, "active");
 }
 
 function selectSquare(square) {
@@ -272,7 +399,8 @@ function chooseFallbackMove() {
 }
 
 async function requestAiMove() {
-  if (!started || game.isGameOver() || game.turn() === playerColor) return;
+  const record = activeGame();
+  if (!record.aiEnabled || !started || game.isGameOver() || game.turn() === playerColor) return;
   const token = ++turnToken;
   thinking = true;
   clearSelection();
@@ -280,12 +408,11 @@ async function requestAiMove() {
   setStatus("AI가 생각 중입니다…", "thinking");
   const legalMoves = legalUciMoves();
   let uciMove = null;
-  try { uciMove = await engine.move(game.fen(), legalMoves); } catch { uciMove = chooseFallbackMove(); }
-  if (token !== turnToken || !started || game.isGameOver()) return;
+  try { uciMove = await engine.move(game.fen(), legalMoves, record.rating); } catch { uciMove = chooseFallbackMove(); }
+  if (token !== turnToken || !started || game.isGameOver() || activeGameId !== record.id) return;
   thinking = false;
   if (!uciMove || !legalMoves.includes(uciMove)) uciMove = chooseFallbackMove();
   if (!uciMove) return updateGameOverStatus();
-
   const move = game.move({ from: uciMove.slice(0, 2), to: uciMove.slice(2, 4), promotion: uciMove[4] || "q" });
   recordMove(move);
   renderBoard();
@@ -293,11 +420,18 @@ async function requestAiMove() {
 }
 
 function updateGameOverStatus() {
+  const record = activeGame();
   if (game.isCheckmate()) {
     const winnerColor = game.turn() === "w" ? "b" : "w";
-    const playerWon = winnerColor === playerColor;
-    setStatus(`체크메이트 · ${winnerColor === "w" ? "백" : "흑"} 승리`, "idle");
-    setResult(playerWon ? "win" : "loss", playerWon ? "승리" : "패배", "체크메이트");
+    if (record.aiEnabled) {
+      const playerWon = winnerColor === playerColor;
+      setStatus(`체크메이트 · ${winnerColor === "w" ? "백" : "흑"} 승리`, "idle");
+      setResult(playerWon ? "win" : "loss", playerWon ? "승리" : "패배", "체크메이트");
+    } else {
+      setStatus(`체크메이트 · ${winnerColor === "w" ? "백" : "흑"} 승리`, "idle");
+      setResult("win", `${winnerColor === "w" ? "백" : "흑"} 승리`, "체크메이트");
+    }
+    saveActiveGameState();
     return true;
   }
   if (game.isStalemate()) return finishDraw("스테일메이트");
@@ -310,6 +444,7 @@ function updateGameOverStatus() {
 function finishDraw(reason) {
   setStatus(`${reason} · 무승부`, "idle");
   setResult("draw", "무승부", reason);
+  saveActiveGameState();
   return true;
 }
 
@@ -336,6 +471,7 @@ function renderResult() {
 function setStatus(text, mode = "idle") {
   liveStatus = { text, mode };
   renderStatus();
+  saveActiveGameState();
 }
 
 function renderStatus() {
@@ -364,32 +500,69 @@ function goToHistory(index) {
   syncHistoryControls();
   renderBoard();
   renderStatus();
+  saveActiveGameState();
 }
 
 function syncControls() {
   const colorName = playerColor === "w" ? "백" : "흑";
   colorButton.disabled = started;
   startButton.disabled = started;
-  colorButton.title = `${colorName}으로 플레이 · 색상 전환`;
-  colorButton.setAttribute("aria-label", `${colorName}으로 플레이, 색상 전환`);
-  syncHistoryControls();
+  colorButton.title = `${colorName} 시점 · 색상 전환`;
+  colorButton.setAttribute("aria-label", `${colorName} 시점, 색상 전환`);
 }
 
 function resetGame() {
   turnToken += 1;
+  engine.reset();
   game = new Chess();
   started = false;
   thinking = false;
-  clearSelection();
-  engine.reset();
+  selectedSquare = null;
+  legalTargets.clear();
   positionHistory = [game.fen()];
   moveHistory = [];
   historyIndex = 0;
   liveStatus = { text: "", mode: "idle" };
-  clearResult();
-  renderBoard();
+  resultState = null;
   syncControls();
+  syncHistoryControls();
+  renderBoard();
   renderStatus();
+  saveActiveGameState();
+}
+
+function syncNewGameForm() {
+  ratingField.classList.toggle("disabled", !aiEnabledInput.checked);
+  ratingSelect.disabled = !aiEnabledInput.checked;
+  ratingCustomInput.disabled = !aiEnabledInput.checked;
+  const custom = ratingSelect.value === "custom";
+  ratingCustomInput.hidden = !custom;
+}
+
+function openNewGameDialog() {
+  gameNameInput.value = "";
+  aiEnabledInput.checked = true;
+  ratingSelect.value = "1000";
+  ratingCustomInput.value = "1000";
+  syncNewGameForm();
+  newGameDialog.showModal();
+  requestAnimationFrame(() => gameNameInput.focus());
+}
+
+function closeNewGameDialog() {
+  if (newGameDialog.open) newGameDialog.close();
+}
+
+function createGameFromForm() {
+  const name = gameNameInput.value.trim() || `게임 ${games.length + 1}`;
+  const aiEnabled = aiEnabledInput.checked;
+  const rawRating = ratingSelect.value === "custom" ? Number(ratingCustomInput.value) : Number(ratingSelect.value);
+  const rating = Math.round(Math.min(3200, Math.max(400, Number.isFinite(rawRating) ? rawRating : 1000)));
+  saveActiveGameState();
+  const record = makeGameRecord(name, aiEnabled, rating);
+  games.push(record);
+  closeNewGameDialog();
+  loadGameRecord(record);
 }
 
 colorButton.addEventListener("click", () => {
@@ -397,6 +570,8 @@ colorButton.addEventListener("click", () => {
   playerColor = playerColor === "w" ? "b" : "w";
   renderBoard();
   syncControls();
+  setStatus("");
+  saveActiveGameState();
 });
 
 startButton.addEventListener("click", () => {
@@ -404,17 +579,51 @@ startButton.addEventListener("click", () => {
   started = true;
   turnToken += 1;
   syncControls();
-  if (game.turn() === playerColor) setStatus("당신의 차례입니다.", "active");
-  else void requestAiMove();
+  const record = activeGame();
+  if (record.aiEnabled) {
+    if (game.turn() === playerColor) setStatus("당신의 차례입니다.", "active");
+    else void requestAiMove();
+  } else {
+    setStatus(`${game.turn() === "w" ? "백" : "흑"}의 차례입니다.`, "active");
+  }
+  saveActiveGameState();
 });
 
 resetButton.addEventListener("click", resetGame);
-newGameButton?.addEventListener("click", resetGame);
 historyFirstButton.addEventListener("click", () => goToHistory(0));
 historyPrevButton.addEventListener("click", () => goToHistory(historyIndex - 1));
 historyNextButton.addEventListener("click", () => goToHistory(historyIndex + 1));
 historyLastButton.addEventListener("click", () => goToHistory(positionHistory.length - 1));
+newGameButton.addEventListener("click", openNewGameDialog);
+newGameClose.addEventListener("click", closeNewGameDialog);
+newGameCancel.addEventListener("click", closeNewGameDialog);
+aiEnabledInput.addEventListener("change", syncNewGameForm);
+ratingSelect.addEventListener("change", syncNewGameForm);
+newGameForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!newGameForm.reportValidity()) return;
+  createGameFromForm();
+});
+newGameDialog.addEventListener("click", (event) => {
+  if (event.target === newGameDialog) closeNewGameDialog();
+});
 
-renderBoard();
+document.addEventListener("keydown", (event) => {
+  if (newGameDialog.open || event.altKey || event.ctrlKey || event.metaKey) return;
+  const target = event.target;
+  if (target instanceof HTMLElement && (target.matches("input, textarea, select") || target.isContentEditable)) return;
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    goToHistory(historyIndex - 1);
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    goToHistory(historyIndex + 1);
+  }
+});
+
+renderGameList();
+syncGameHeader();
 syncControls();
+syncHistoryControls();
+renderBoard();
 renderStatus();
