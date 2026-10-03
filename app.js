@@ -8,6 +8,14 @@ const newGameButton = document.querySelector("#new-game-button");
 const statusRow = document.querySelector("#status-row");
 const statusElement = document.querySelector("#status");
 const statusDot = document.querySelector("#status-dot");
+const resultCard = document.querySelector("#result-card");
+const resultTitle = document.querySelector("#result-title");
+const resultDetail = document.querySelector("#result-detail");
+const historyFirstButton = document.querySelector("#history-first");
+const historyPrevButton = document.querySelector("#history-prev");
+const historyNextButton = document.querySelector("#history-next");
+const historyLastButton = document.querySelector("#history-last");
+const historyPosition = document.querySelector("#history-position");
 
 const pieceGlyphs = {
   w: { k: "♔", q: "♕", r: "♖", b: "♗", n: "♘", p: "♙" },
@@ -20,8 +28,12 @@ let started = false;
 let thinking = false;
 let selectedSquare = null;
 let legalTargets = new Set();
-let lastMove = null;
 let turnToken = 0;
+let positionHistory = [game.fen()];
+let moveHistory = [];
+let historyIndex = 0;
+let liveStatus = { text: "", mode: "idle" };
+let resultState = null;
 
 class StockfishClient {
   constructor() {
@@ -135,15 +147,34 @@ class StockfishClient {
 
 const engine = new StockfishClient();
 
+function isAtLatestPosition() {
+  return historyIndex === positionHistory.length - 1;
+}
+
+function viewGame() {
+  return isAtLatestPosition() ? game : new Chess(positionHistory[historyIndex]);
+}
+
+function recordMove(move) {
+  const followLatest = isAtLatestPosition();
+  moveHistory.push({ from: move.from, to: move.to });
+  positionHistory.push(game.fen());
+  if (followLatest) historyIndex = positionHistory.length - 1;
+  syncHistoryControls();
+}
+
 function renderBoard() {
   boardElement.replaceChildren();
+  const displayedGame = viewGame();
+  const displayedLastMove = historyIndex > 0 ? moveHistory[historyIndex - 1] : null;
+  const livePosition = isAtLatestPosition();
   const files = playerColor === "w" ? ["a", "b", "c", "d", "e", "f", "g", "h"] : ["h", "g", "f", "e", "d", "c", "b", "a"];
   const ranks = playerColor === "w" ? [8, 7, 6, 5, 4, 3, 2, 1] : [1, 2, 3, 4, 5, 6, 7, 8];
 
   ranks.forEach((rank, visualRankIndex) => {
     files.forEach((file, visualFileIndex) => {
       const square = `${file}${rank}`;
-      const piece = game.get(square);
+      const piece = displayedGame.get(square);
       const isDark = ((file.charCodeAt(0) - 97) + rank) % 2 === 1;
       const button = document.createElement("button");
       button.type = "button";
@@ -151,10 +182,10 @@ function renderBoard() {
       button.dataset.square = square;
       button.setAttribute("role", "gridcell");
       button.setAttribute("aria-label", describeSquare(square, piece));
-      if (selectedSquare === square) button.classList.add("selected");
-      if (legalTargets.has(square)) button.classList.add("legal");
+      if (livePosition && selectedSquare === square) button.classList.add("selected");
+      if (livePosition && legalTargets.has(square)) button.classList.add("legal");
       if (piece) button.classList.add("has-piece");
-      if (lastMove && (lastMove.from === square || lastMove.to === square)) button.classList.add("last-move");
+      if (displayedLastMove && (displayedLastMove.from === square || displayedLastMove.to === square)) button.classList.add("last-move");
 
       if (piece) {
         const span = document.createElement("span");
@@ -168,6 +199,7 @@ function renderBoard() {
       boardElement.append(button);
     });
   });
+  renderResult();
 }
 
 function makeCoord(kind, value) {
@@ -184,7 +216,7 @@ function describeSquare(square, piece) {
 }
 
 function handleSquareClick(square) {
-  if (!started || thinking || game.isGameOver() || game.turn() !== playerColor) return;
+  if (!started || thinking || game.isGameOver() || game.turn() !== playerColor || !isAtLatestPosition()) return;
   const piece = game.get(square);
   if (!selectedSquare) {
     if (piece?.color === playerColor) selectSquare(square);
@@ -203,7 +235,7 @@ function handleSquareClick(square) {
   let move = null;
   try { move = game.move({ from: selectedSquare, to: square, promotion: "q" }); } catch { move = null; }
   if (!move) return;
-  lastMove = { from: move.from, to: move.to };
+  recordMove(move);
   clearSelection();
   renderBoard();
   if (!updateGameOverStatus()) void requestAiMove();
@@ -255,29 +287,83 @@ async function requestAiMove() {
   if (!uciMove) return updateGameOverStatus();
 
   const move = game.move({ from: uciMove.slice(0, 2), to: uciMove.slice(2, 4), promotion: uciMove[4] || "q" });
-  lastMove = { from: move.from, to: move.to };
+  recordMove(move);
   renderBoard();
   if (!updateGameOverStatus()) setStatus(game.inCheck() ? "체크입니다. 당신의 차례입니다." : "당신의 차례입니다.", "active");
 }
 
 function updateGameOverStatus() {
   if (game.isCheckmate()) {
-    setStatus(`체크메이트 · ${game.turn() === "w" ? "흑" : "백"} 승리`, "idle");
+    const winnerColor = game.turn() === "w" ? "b" : "w";
+    const playerWon = winnerColor === playerColor;
+    setStatus(`체크메이트 · ${winnerColor === "w" ? "백" : "흑"} 승리`, "idle");
+    setResult(playerWon ? "win" : "loss", playerWon ? "승리" : "패배", "체크메이트");
     return true;
   }
-  if (game.isStalemate()) { setStatus("스테일메이트 · 무승부", "idle"); return true; }
-  if (game.isThreefoldRepetition()) { setStatus("3회 동형 반복 · 무승부", "idle"); return true; }
-  if (game.isInsufficientMaterial()) { setStatus("기물 부족 · 무승부", "idle"); return true; }
-  if (game.isDraw()) { setStatus("무승부", "idle"); return true; }
+  if (game.isStalemate()) return finishDraw("스테일메이트");
+  if (game.isThreefoldRepetition()) return finishDraw("3회 동형 반복");
+  if (game.isInsufficientMaterial()) return finishDraw("기물 부족");
+  if (game.isDraw()) return finishDraw("무승부");
   return false;
 }
 
+function finishDraw(reason) {
+  setStatus(`${reason} · 무승부`, "idle");
+  setResult("draw", "무승부", reason);
+  return true;
+}
+
+function setResult(kind, title, detail) {
+  resultState = { kind, title, detail };
+  renderResult();
+}
+
+function clearResult() {
+  resultState = null;
+  renderResult();
+}
+
+function renderResult() {
+  const visible = Boolean(resultState) && isAtLatestPosition();
+  resultCard.classList.remove("visible", "win", "loss", "draw");
+  resultCard.setAttribute("aria-hidden", visible ? "false" : "true");
+  if (!visible) return;
+  resultTitle.textContent = resultState.title;
+  resultDetail.textContent = resultState.detail;
+  resultCard.classList.add(resultState.kind, "visible");
+}
+
 function setStatus(text, mode = "idle") {
-  statusElement.textContent = text;
-  statusRow.classList.toggle("visible", Boolean(text));
+  liveStatus = { text, mode };
+  renderStatus();
+}
+
+function renderStatus() {
+  const visible = isAtLatestPosition() && Boolean(liveStatus.text);
+  statusElement.textContent = visible ? liveStatus.text : "";
+  statusRow.classList.toggle("visible", visible);
   statusDot.classList.remove("active", "thinking");
-  if (mode === "active") statusDot.classList.add("active");
-  if (mode === "thinking") statusDot.classList.add("thinking");
+  if (!visible) return;
+  if (liveStatus.mode === "active") statusDot.classList.add("active");
+  if (liveStatus.mode === "thinking") statusDot.classList.add("thinking");
+}
+
+function syncHistoryControls() {
+  const lastIndex = positionHistory.length - 1;
+  historyFirstButton.disabled = historyIndex === 0;
+  historyPrevButton.disabled = historyIndex === 0;
+  historyNextButton.disabled = historyIndex === lastIndex;
+  historyLastButton.disabled = historyIndex === lastIndex;
+  historyPosition.textContent = `${historyIndex} / ${lastIndex}`;
+}
+
+function goToHistory(index) {
+  const lastIndex = positionHistory.length - 1;
+  historyIndex = Math.max(0, Math.min(index, lastIndex));
+  clearSelection();
+  syncHistoryControls();
+  renderBoard();
+  renderStatus();
 }
 
 function syncControls() {
@@ -286,6 +372,7 @@ function syncControls() {
   startButton.disabled = started;
   colorButton.title = `${colorName}으로 플레이 · 색상 전환`;
   colorButton.setAttribute("aria-label", `${colorName}으로 플레이, 색상 전환`);
+  syncHistoryControls();
 }
 
 function resetGame() {
@@ -293,12 +380,16 @@ function resetGame() {
   game = new Chess();
   started = false;
   thinking = false;
-  lastMove = null;
   clearSelection();
   engine.reset();
+  positionHistory = [game.fen()];
+  moveHistory = [];
+  historyIndex = 0;
+  liveStatus = { text: "", mode: "idle" };
+  clearResult();
   renderBoard();
   syncControls();
-  setStatus("");
+  renderStatus();
 }
 
 colorButton.addEventListener("click", () => {
@@ -306,7 +397,6 @@ colorButton.addEventListener("click", () => {
   playerColor = playerColor === "w" ? "b" : "w";
   renderBoard();
   syncControls();
-  setStatus("");
 });
 
 startButton.addEventListener("click", () => {
@@ -320,7 +410,11 @@ startButton.addEventListener("click", () => {
 
 resetButton.addEventListener("click", resetGame);
 newGameButton?.addEventListener("click", resetGame);
+historyFirstButton.addEventListener("click", () => goToHistory(0));
+historyPrevButton.addEventListener("click", () => goToHistory(historyIndex - 1));
+historyNextButton.addEventListener("click", () => goToHistory(historyIndex + 1));
+historyLastButton.addEventListener("click", () => goToHistory(positionHistory.length - 1));
 
 renderBoard();
 syncControls();
-setStatus("");
+renderStatus();
