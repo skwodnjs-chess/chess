@@ -47,7 +47,7 @@
         <div class="controls" aria-label="게임 설정">
           <button id="color-button" class="button button-secondary" type="button" title="플레이 색상 전환" aria-label="플레이 색상 전환">
             <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 4v16M8 8l4-4 4 4M8 16l4 4 4-4"/>
+              <path d="M7 18V6M4.5 8.5 7 6l2.5 2.5M17 6v12m-2.5-2.5L17 18l2.5-2.5"/>
             </svg>
           </button>
           <button id="start-button" class="button button-primary" type="button" title="게임 시작" aria-label="게임 시작">
@@ -65,6 +65,26 @@
 
         <div class="board-wrap">
           <div id="board" class="board" role="grid" aria-label="체스판"></div>
+          <div id="result-card" class="result-card" aria-live="assertive" aria-hidden="true">
+            <strong id="result-title" class="result-title"></strong>
+            <span id="result-detail" class="result-detail"></span>
+          </div>
+        </div>
+
+        <div class="history-controls" aria-label="수 탐색">
+          <button id="history-first" class="history-button" type="button" title="처음 수" aria-label="처음 수">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5v14M18 6l-8 6 8 6z"/></svg>
+          </button>
+          <button id="history-prev" class="history-button" type="button" title="이전 수" aria-label="이전 수">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-8 6 8 6z"/></svg>
+          </button>
+          <span id="history-position" class="history-position" aria-live="polite">0 / 0</span>
+          <button id="history-next" class="history-button" type="button" title="다음 수" aria-label="다음 수">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 8 6-8 6z"/></svg>
+          </button>
+          <button id="history-last" class="history-button" type="button" title="마지막 수" aria-label="마지막 수">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5v14M6 6l8 6-8 6z"/></svg>
+          </button>
         </div>
       </div>
     </section>
