@@ -1,10 +1,11 @@
 (() => {
   const NativeWorker = window.Worker;
-  const STOCKFISH_WASM_URL = "https://cdn.jsdelivr.net/npm/stockfish@19.0.0/bin/stockfish-19-single.wasm";
+  const STOCKFISH_WASM_URL = "https://unpkg.com/stockfish@19.0.0/bin/stockfish-19-single.wasm";
   const INITIAL_CLOCK_MS = 120_000;
   const INCREMENT_MS = 1_000;
 
-  function showEngineError() {
+  function showEngineError(event) {
+    console.error("Stockfish worker error:", event?.message || event);
     const row = document.querySelector("#status-row");
     const status = document.querySelector("#status");
     const dot = document.querySelector("#status-dot");
@@ -34,11 +35,11 @@
       this.__searchStartedAt = null;
 
       if (isStockfish) {
-        // Surface engine-load failures, but do not stop propagation: app.js
-        // still needs to receive the error and leave its pending state cleanly.
-        super.addEventListener("error", () => {
+        // Surface failures without suppressing them. app.js still receives the
+        // error event and can clean up its pending search state.
+        super.addEventListener("error", (event) => {
           this.__searchStartedAt = null;
-          showEngineError();
+          showEngineError(event);
         });
 
         super.addEventListener("message", (event) => {
@@ -60,7 +61,7 @@
           this.__searchStartedAt = null;
         }
 
-        // app.js emits a placeholder movetime command as a search trigger.
+        // app.js emits a placeholder movetime command as the search trigger.
         // Replace it with a real 120+1 clock so Stockfish's own time manager
         // decides how long to spend on each move.
         if (/^go movetime \d+$/.test(message)) {
