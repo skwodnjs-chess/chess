@@ -45,9 +45,15 @@
 
       <div class="game-stage">
         <div class="controls" aria-label="게임 설정">
-          <button id="color-button" class="button button-secondary button-color" type="button" title="플레이 색상 전환">백으로 플레이</button>
-          <button id="start-button" class="button button-primary button-start" type="button" title="게임 시작">게임 시작</button>
-          <button id="reset-button" class="button button-ghost button-reset" type="button" title="게임 초기화">Reset</button>
+          <button id="color-button" class="button button-secondary" type="button" title="플레이 색상 전환" aria-label="플레이 색상 전환">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v16M8 4 5 7M8 4l3 3M16 20V4m0 16-3-3m3 3 3-3"/></svg>
+          </button>
+          <button id="start-button" class="button button-primary" type="button" title="게임 시작" aria-label="게임 시작">
+            <svg class="button-icon button-icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10-6.5z"/></svg>
+          </button>
+          <button id="reset-button" class="button button-ghost" type="button" title="게임 초기화" aria-label="게임 초기화">
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 9A8 8 0 1 1 6 17.5M4.5 9V4.5M4.5 9H9"/></svg>
+          </button>
         </div>
 
         <div id="status-row" class="status-row" aria-live="polite">
