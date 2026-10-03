@@ -11,8 +11,17 @@ function bendDiagonalArrows() {
     const y2 = Number(line.getAttribute("y2"));
     if (x1 === x2 || y1 === y2) continue;
 
+    const dx = Math.abs(x2 - x1);
+    const dy = Math.abs(y2 - y1);
+    const horizontalFirst = dx > dy;
+
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", `M ${x1} ${y1} L ${x1} ${y2} L ${x2} ${y2}`);
+    path.setAttribute(
+      "d",
+      horizontalFirst
+        ? `M ${x1} ${y1} L ${x2} ${y1} L ${x2} ${y2}`
+        : `M ${x1} ${y1} L ${x1} ${y2} L ${x2} ${y2}`
+    );
     path.setAttribute("class", "annotation-arrow");
     path.setAttribute("marker-end", line.getAttribute("marker-end") || "url(#board-arrow-head)");
     line.replaceWith(path);
