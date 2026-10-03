@@ -11,7 +11,7 @@
   <main class="app-shell">
     <aside class="sidebar" aria-label="게임 목록">
       <div class="sidebar-brand">
-        <span class="brand-mark" aria-hidden="true">♞</span>
+        <span class="brand-mark" aria-hidden="true"><span class="brand-mark-glyph">♞</span></span>
         <span>Chess</span>
       </div>
 
@@ -22,12 +22,7 @@
 
       <section class="sidebar-section">
         <p class="sidebar-label">게임</p>
-        <nav id="game-list" class="game-list" aria-label="저장된 게임">
-          <button class="game-item active" type="button">
-            <span class="game-item-title">현재 게임</span>
-            <span class="game-item-meta">AI · 1000</span>
-          </button>
-        </nav>
+        <nav id="game-list" class="game-list" aria-label="게임 목록"></nav>
       </section>
 
       <div class="sidebar-spacer"></div>
@@ -40,15 +35,13 @@
     <section class="workspace" aria-labelledby="page-title">
       <header class="workspace-header">
         <h1 id="page-title">현재 게임</h1>
-        <div class="engine-badge" aria-label="AI 난이도">AI · Elo 1000</div>
+        <div id="engine-badge" class="engine-badge">AI · Elo 1000</div>
       </header>
 
       <div class="game-stage">
         <div class="controls" aria-label="게임 설정">
           <button id="color-button" class="button button-secondary" type="button" title="플레이 색상 전환" aria-label="플레이 색상 전환">
-            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M7 18V6M4.5 8.5 7 6l2.5 2.5M17 6v12m-2.5-2.5L17 18l2.5-2.5"/>
-            </svg>
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18V6M4.5 8.5 7 6l2.5 2.5M17 6v12m-2.5-2.5L17 18l2.5-2.5"/></svg>
           </button>
           <button id="start-button" class="button button-primary" type="button" title="게임 시작" aria-label="게임 시작">
             <svg class="button-icon button-icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10-6.5z"/></svg>
@@ -89,6 +82,56 @@
       </div>
     </section>
   </main>
+
+  <dialog id="new-game-dialog" class="new-game-dialog" aria-labelledby="new-game-title">
+    <form id="new-game-form" class="new-game-form" method="dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="dialog-eyebrow">NEW GAME</p>
+          <h2 id="new-game-title">새 게임</h2>
+        </div>
+        <button id="new-game-close" class="dialog-close" type="button" aria-label="닫기">×</button>
+      </div>
+
+      <label class="field">
+        <span class="field-label">게임 이름</span>
+        <input id="game-name-input" name="gameName" type="text" maxlength="60" placeholder="예: AI 1200 연습" autocomplete="off" required>
+      </label>
+
+      <div class="field field-row">
+        <div>
+          <span class="field-label">AI 상대</span>
+          <span class="field-description">끄면 양쪽 기물을 직접 움직입니다.</span>
+        </div>
+        <label class="switch">
+          <input id="ai-enabled-input" name="aiEnabled" type="checkbox" checked>
+          <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+        </label>
+      </div>
+
+      <div id="rating-field" class="field rating-field">
+        <span class="field-label">AI Rating</span>
+        <div class="rating-row">
+          <select id="rating-select" name="ratingPreset" aria-label="AI Rating 선택">
+            <option value="800">800</option>
+            <option value="1000" selected>1000</option>
+            <option value="1200">1200</option>
+            <option value="1400">1400</option>
+            <option value="1600">1600</option>
+            <option value="1800">1800</option>
+            <option value="2000">2000</option>
+            <option value="custom">직접 입력</option>
+          </select>
+          <input id="rating-custom-input" class="rating-custom-input" name="ratingCustom" type="number" min="400" max="3200" step="50" value="1000" inputmode="numeric" aria-label="AI Rating 직접 입력" hidden>
+        </div>
+      </div>
+
+      <div class="dialog-actions">
+        <button id="new-game-cancel" class="dialog-button dialog-button-secondary" type="button">취소</button>
+        <button class="dialog-button dialog-button-primary" type="submit">만들기</button>
+      </div>
+    </form>
+  </dialog>
 
   <script type="module" src="./app.js"></script>
 </body>
