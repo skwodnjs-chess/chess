@@ -4,6 +4,8 @@ const boardElement = document.querySelector("#board");
 const colorButton = document.querySelector("#color-button");
 const startButton = document.querySelector("#start-button");
 const resetButton = document.querySelector("#reset-button");
+const newGameButton = document.querySelector("#new-game-button");
+const statusRow = document.querySelector("#status-row");
 const statusElement = document.querySelector("#status");
 const statusDot = document.querySelector("#status-dot");
 
@@ -50,9 +52,9 @@ class StockfishClient {
       this.pending.reject(new Error("Stockfish unavailable"));
       this.pending = null;
     }
-    if (this.worker) this.worker.terminate();
+    this.worker?.terminate();
     this.worker = null;
-    if (this.readyResolve) this.readyResolve();
+    this.readyResolve?.();
     this.readyResolve = null;
   }
 
@@ -74,8 +76,7 @@ class StockfishClient {
       if (line.startsWith("info ")) this.captureCandidate(line);
       if (line.startsWith("bestmove ")) {
         const fallback = line.split(/\s+/)[1];
-        const resolve = this.pending.resolve;
-        const legalMoves = this.pending.legalMoves;
+        const { resolve, legalMoves } = this.pending;
         this.pending = null;
         resolve(this.chooseApprox1000Move(fallback, legalMoves));
       }
@@ -93,9 +94,7 @@ class StockfishClient {
   }
 
   chooseApprox1000Move(fallback, legalMoves) {
-    if (legalMoves.length > 1 && Math.random() < 0.12) {
-      return legalMoves[Math.floor(Math.random() * legalMoves.length)];
-    }
+    if (legalMoves.length > 1 && Math.random() < 0.12) return legalMoves[Math.floor(Math.random() * legalMoves.length)];
     const candidates = [...this.candidates.values()].filter((candidate) => legalMoves.includes(candidate.move));
     if (!candidates.length) return legalMoves.includes(fallback) ? fallback : legalMoves[0];
     const bestScore = Math.max(...candidates.map((candidate) => candidate.score));
@@ -145,8 +144,7 @@ function renderBoard() {
     files.forEach((file, visualFileIndex) => {
       const square = `${file}${rank}`;
       const piece = game.get(square);
-      const fileIndex = file.charCodeAt(0) - 97;
-      const isDark = (fileIndex + rank) % 2 === 1;
+      const isDark = ((file.charCodeAt(0) - 97) + rank) % 2 === 1;
       const button = document.createElement("button");
       button.type = "button";
       button.className = `square ${isDark ? "dark" : "light"}`;
@@ -186,39 +184,29 @@ function describeSquare(square, piece) {
 }
 
 function handleSquareClick(square) {
-  if (!started) return setStatus("먼저 게임을 시작하세요.", "idle");
-  if (thinking || game.isGameOver() || game.turn() !== playerColor) return;
+  if (!started || thinking || game.isGameOver() || game.turn() !== playerColor) return;
   const piece = game.get(square);
-
   if (!selectedSquare) {
     if (piece?.color === playerColor) selectSquare(square);
     return;
   }
-
   if (square === selectedSquare) {
     clearSelection();
     renderBoard();
     return;
   }
-
   if (piece?.color === playerColor) {
     selectSquare(square);
     return;
   }
 
   let move = null;
-  try {
-    move = game.move({ from: selectedSquare, to: square, promotion: "q" });
-  } catch {
-    move = null;
-  }
+  try { move = game.move({ from: selectedSquare, to: square, promotion: "q" }); } catch { move = null; }
   if (!move) return;
-
   lastMove = { from: move.from, to: move.to };
   clearSelection();
   renderBoard();
-  if (updateGameOverStatus()) return;
-  void requestAiMove();
+  if (!updateGameOverStatus()) void requestAiMove();
 }
 
 function selectSquare(square) {
@@ -245,8 +233,7 @@ function chooseFallbackMove() {
     if (move.san.includes("+")) score += 1.8;
     if (["d4", "d5", "e4", "e5"].includes(move.to)) score += 0.7;
     return { move, score };
-  });
-  scored.sort((a, b) => b.score - a.score);
+  }).sort((a, b) => b.score - a.score);
   const pool = scored.slice(0, Math.min(6, scored.length));
   const pick = Math.random() < 0.2 ? pool[Math.floor(Math.random() * pool.length)] : pool[0];
   return `${pick.move.from}${pick.move.to}${pick.move.promotion ?? ""}`;
@@ -261,13 +248,7 @@ async function requestAiMove() {
   setStatus("AI가 생각 중입니다…", "thinking");
   const legalMoves = legalUciMoves();
   let uciMove = null;
-
-  try {
-    uciMove = await engine.move(game.fen(), legalMoves);
-  } catch {
-    uciMove = chooseFallbackMove();
-  }
-
+  try { uciMove = await engine.move(game.fen(), legalMoves); } catch { uciMove = chooseFallbackMove(); }
   if (token !== turnToken || !started || game.isGameOver()) return;
   thinking = false;
   if (!uciMove || !legalMoves.includes(uciMove)) uciMove = chooseFallbackMove();
@@ -281,63 +262,33 @@ async function requestAiMove() {
 
 function updateGameOverStatus() {
   if (game.isCheckmate()) {
-    const winner = game.turn() === "w" ? "흑" : "백";
-    setStatus(`체크메이트 · ${winner} 승리`, "idle");
+    setStatus(`체크메이트 · ${game.turn() === "w" ? "흑" : "백"} 승리`, "idle");
     return true;
   }
-  if (game.isStalemate()) {
-    setStatus("스테일메이트 · 무승부", "idle");
-    return true;
-  }
-  if (game.isThreefoldRepetition()) {
-    setStatus("3회 동형 반복 · 무승부", "idle");
-    return true;
-  }
-  if (game.isInsufficientMaterial()) {
-    setStatus("기물 부족 · 무승부", "idle");
-    return true;
-  }
-  if (game.isDraw()) {
-    setStatus("무승부", "idle");
-    return true;
-  }
+  if (game.isStalemate()) { setStatus("스테일메이트 · 무승부", "idle"); return true; }
+  if (game.isThreefoldRepetition()) { setStatus("3회 동형 반복 · 무승부", "idle"); return true; }
+  if (game.isInsufficientMaterial()) { setStatus("기물 부족 · 무승부", "idle"); return true; }
+  if (game.isDraw()) { setStatus("무승부", "idle"); return true; }
   return false;
 }
 
-function setStatus(text, mode) {
+function setStatus(text, mode = "idle") {
   statusElement.textContent = text;
+  statusRow.classList.toggle("visible", Boolean(text));
   statusDot.classList.remove("active", "thinking");
   if (mode === "active") statusDot.classList.add("active");
   if (mode === "thinking") statusDot.classList.add("thinking");
 }
 
 function syncControls() {
-  colorButton.textContent = playerColor === "w" ? "백으로 플레이" : "흑으로 플레이";
+  const colorName = playerColor === "w" ? "백" : "흑";
   colorButton.disabled = started;
   startButton.disabled = started;
+  colorButton.title = `${colorName}으로 플레이 · 색상 전환`;
+  colorButton.setAttribute("aria-label", `${colorName}으로 플레이, 색상 전환`);
 }
 
-colorButton.addEventListener("click", () => {
-  if (started) return;
-  playerColor = playerColor === "w" ? "b" : "w";
-  renderBoard();
-  syncControls();
-  setStatus(`${playerColor === "w" ? "백" : "흑"}을 선택했습니다. 게임을 시작하세요.`, "idle");
-});
-
-startButton.addEventListener("click", () => {
-  if (started) return;
-  started = true;
-  turnToken += 1;
-  syncControls();
-  if (game.turn() === playerColor) {
-    setStatus("당신의 차례입니다.", "active");
-  } else {
-    void requestAiMove();
-  }
-});
-
-resetButton.addEventListener("click", () => {
+function resetGame() {
   turnToken += 1;
   game = new Chess();
   started = false;
@@ -347,8 +298,29 @@ resetButton.addEventListener("click", () => {
   engine.reset();
   renderBoard();
   syncControls();
-  setStatus("게임을 초기화했습니다. 색상을 선택한 뒤 시작하세요.", "idle");
+  setStatus("");
+}
+
+colorButton.addEventListener("click", () => {
+  if (started) return;
+  playerColor = playerColor === "w" ? "b" : "w";
+  renderBoard();
+  syncControls();
+  setStatus("");
 });
+
+startButton.addEventListener("click", () => {
+  if (started) return;
+  started = true;
+  turnToken += 1;
+  syncControls();
+  if (game.turn() === playerColor) setStatus("당신의 차례입니다.", "active");
+  else void requestAiMove();
+});
+
+resetButton.addEventListener("click", resetGame);
+newGameButton?.addEventListener("click", resetGame);
 
 renderBoard();
 syncControls();
+setStatus("");
