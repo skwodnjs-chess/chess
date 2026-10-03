@@ -4,6 +4,20 @@
   const INITIAL_CLOCK_MS = 120_000;
   const INCREMENT_MS = 1_000;
 
+  function showEngineError() {
+    const row = document.querySelector("#status-row");
+    const status = document.querySelector("#status");
+    const dot = document.querySelector("#status-dot");
+    const badge = document.querySelector("#engine-badge");
+    if (status) status.textContent = "Stockfish 엔진 로딩에 실패했습니다.";
+    if (row) row.classList.add("visible");
+    if (dot) dot.classList.remove("active", "thinking");
+    if (badge) {
+      badge.textContent = "AI · 엔진 오류";
+      badge.setAttribute("aria-label", "Stockfish 엔진 오류");
+    }
+  }
+
   class ChessWorker extends NativeWorker {
     constructor(scriptURL, options) {
       const url = new URL(String(scriptURL), document.baseURI);
@@ -20,6 +34,13 @@
       this.__searchStartedAt = null;
 
       if (isStockfish) {
+        // Surface engine-load failures, but do not stop propagation: app.js
+        // still needs to receive the error and leave its pending state cleanly.
+        super.addEventListener("error", () => {
+          this.__searchStartedAt = null;
+          showEngineError();
+        });
+
         super.addEventListener("message", (event) => {
           const payload = String(event.data ?? "");
           for (const line of payload.split(/\r?\n/)) {
