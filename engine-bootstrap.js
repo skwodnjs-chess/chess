@@ -1,18 +1,8 @@
 (() => {
   const NativeWorker = window.Worker;
-  const STOCKFISH_WASM_URL = "https://cdn.jsdelivr.net/npm/stockfish@19.0.0/bin/stockfish-19-lite-single.wasm";
-
-  function thinkTimeForRating(rating) {
-    if (!Number.isFinite(rating)) return 350;
-    if (rating >= 2800) return 2200;
-    if (rating >= 2400) return 1800;
-    if (rating >= 2000) return 1400;
-    if (rating >= 1800) return 1100;
-    if (rating >= 1600) return 900;
-    if (rating >= 1400) return 700;
-    if (rating >= 1320) return 600;
-    return 350;
-  }
+  const STOCKFISH_WASM_URL = "https://cdn.jsdelivr.net/npm/stockfish@19.0.0/bin/stockfish-19-single.wasm";
+  const INITIAL_CLOCK_MS = 120_000;
+  const INCREMENT_MS = 1_000;
 
   class ChessWorker extends NativeWorker {
     constructor(scriptURL, options) {
@@ -20,13 +10,28 @@
       const isStockfish = url.pathname.endsWith("/stockfish-worker.js");
 
       if (isStockfish) {
-        // Stockfish.js reads the worker URL hash as the WASM location.
+        // stockfish.js reads the worker URL hash as the WASM location.
         url.hash = encodeURIComponent(STOCKFISH_WASM_URL);
       }
 
       super(url, options);
       this.__isStockfish = isStockfish;
       this.__stockfishElo = null;
+      this.__clockMs = INITIAL_CLOCK_MS;
+      this.__sideToMove = "w";
+      this.__searchStartedAt = null;
+
+      if (isStockfish) {
+        super.addEventListener("message", (event) => {
+          const payload = String(event.data ?? "");
+          for (const line of payload.split(/\r?\n/)) {
+            if (!line.startsWith("bestmove ") || this.__searchStartedAt === null) continue;
+            const elapsed = Math.max(0, performance.now() - this.__searchStartedAt);
+            this.__clockMs = Math.max(1, this.__clockMs - elapsed) + INCREMENT_MS;
+            this.__searchStartedAt = null;
+          }
+        });
+      }
     }
 
     postMessage(message, transferOrOptions) {
@@ -38,8 +43,23 @@
           this.__stockfishElo = null;
         }
 
+        if (message === "ucinewgame") {
+          this.__clockMs = INITIAL_CLOCK_MS;
+          this.__sideToMove = "w";
+          this.__searchStartedAt = null;
+        }
+
+        if (message.startsWith("position fen ")) {
+          const parts = message.split(/\s+/);
+          this.__sideToMove = parts[3] === "b" ? "b" : "w";
+        }
+
+        // The app still emits a placeholder movetime command. Replace it with
+        // a real 120+1 UCI clock so Stockfish decides its own thinking time.
         if (/^go movetime \d+$/.test(message)) {
-          message = `go movetime ${thinkTimeForRating(this.__stockfishElo)}`;
+          const clock = Math.max(1, Math.round(this.__clockMs));
+          this.__searchStartedAt = performance.now();
+          message = `go wtime ${clock} btime ${clock} winc ${INCREMENT_MS} binc ${INCREMENT_MS}`;
         }
       }
 
@@ -52,7 +72,8 @@
 
   window.Worker = ChessWorker;
   window.__CHESS_ENGINE_INFO__ = Object.freeze({
-    engine: "Stockfish 19 lite single-threaded WASM",
+    engine: "Stockfish 19 full single-threaded WASM",
+    timeControl: "120+1",
     nativeEloMin: 1320,
     nativeEloMax: 3190
   });
