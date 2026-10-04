@@ -1,8 +1,14 @@
 (() => {
   const NativeWorker = window.Worker;
-  const STOCKFISH_WASM_URL = "https://unpkg.com/stockfish@19.0.0/bin/stockfish-19-single.wasm";
+  const THREADED = window.crossOriginIsolated && typeof SharedArrayBuffer !== "undefined";
+  const STOCKFISH_WASM_URL = THREADED
+    ? "https://unpkg.com/stockfish@19.0.0/bin/stockfish-19.wasm"
+    : "https://unpkg.com/stockfish@19.0.0/bin/stockfish-19-single.wasm";
   const INITIAL_CLOCK_MS = 120_000;
   const INCREMENT_MS = 1_000;
+  const THREADS = THREADED
+    ? Math.max(2, Math.min(4, Math.max(1, (navigator.hardwareConcurrency || 4) - 1)))
+    : 1;
 
   function showEngineError(event) {
     console.error("Stockfish worker error:", event?.message || event);
@@ -35,8 +41,6 @@
       this.__searchStartedAt = null;
 
       if (isStockfish) {
-        // Surface failures without suppressing them. app.js still receives the
-        // error event and can clean up its pending search state.
         super.addEventListener("error", (event) => {
           this.__searchStartedAt = null;
           showEngineError(event);
@@ -45,6 +49,12 @@
         super.addEventListener("message", (event) => {
           const payload = String(event.data ?? "");
           for (const line of payload.split(/\r?\n/)) {
+            if (line === "uciok" && THREADED) {
+              // Apply threading before app.js sends isready.
+              super.postMessage(`setoption name Threads value ${THREADS}`);
+              super.postMessage("setoption name Hash value 64");
+            }
+
             if (!line.startsWith("bestmove ") || this.__searchStartedAt === null) continue;
             const elapsed = Math.max(0, performance.now() - this.__searchStartedAt);
             this.__clockMs = Math.max(1, this.__clockMs - elapsed) + INCREMENT_MS;
@@ -80,9 +90,17 @@
 
   window.Worker = ChessWorker;
   window.__CHESS_ENGINE_INFO__ = Object.freeze({
-    engine: "Stockfish 19 full single-threaded WASM",
+    engine: THREADED
+      ? "Stockfish 19 full multi-threaded WASM"
+      : "Stockfish 19 full single-threaded WASM",
+    threaded: THREADED,
+    threads: THREADS,
     timeControl: "120+1",
     nativeEloMin: 1320,
     nativeEloMax: 3190
   });
+
+  console.info(
+    `[Chess] ${window.__CHESS_ENGINE_INFO__.engine} · threads=${THREADS} · crossOriginIsolated=${window.crossOriginIsolated}`
+  );
 })();
