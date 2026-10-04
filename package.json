@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:maia": "esbuild maia-worker-source.js --bundle --format=esm --platform=browser --target=es2022 --outfile=stockfish-worker.js --define:process.env.NODE_ENV=\"'production'\""
+    "build:maia": "esbuild maia-worker-source.js --bundle --format=esm --platform=browser --target=es2022 --conditions=onnxruntime-web-use-extern-wasm --alias:onnxruntime-web=onnxruntime-web/wasm --outfile=stockfish-worker.js --define:process.env.NODE_ENV=\"'production'\""
   },
   "dependencies": {
     "maia3-js": "0.2.0",
