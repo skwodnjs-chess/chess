@@ -3,7 +3,7 @@
 // Stockfish assets remain in the repository for future post-game analysis.
 
 const MAIA_MODULE_URL = "https://esm.sh/maia3-js@0.2.0/web?bundle&deps=onnxruntime-web@1.27.0";
-const MAIA_MODEL_URL = "https://huggingface.co/cemoss17/maia3-onnx/resolve/main/maia3_5m.onnx";
+const MAIA_MODEL_URL = new URL("./assets/maia3_5m.onnx", self.location.href).href;
 
 let maia = null;
 let loadPromise = null;
@@ -96,8 +96,6 @@ async function playMove(searchGeneration) {
 
   if (searchGeneration !== generation) return;
 
-  // app.js already understands MultiPV-like info lines. For sub-1320 levels
-  // it uses these scores to add an extra controlled amount of variability.
   for (let i = 0; i < result.candidates.length; i += 1) {
     const candidate = result.candidates[i];
     const probability = Math.max(1e-6, candidate.probability ?? 0);
