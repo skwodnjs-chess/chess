@@ -4,11 +4,10 @@
   const STOCKFISH_WASM_URL = THREADED
     ? "https://unpkg.com/stockfish@19.0.0/bin/stockfish-19.wasm"
     : "https://unpkg.com/stockfish@19.0.0/bin/stockfish-19-single.wasm";
-  const INITIAL_CLOCK_MS = 120_000;
-  const INCREMENT_MS = 1_000;
   const THREADS = THREADED
     ? Math.max(2, Math.min(4, Math.max(1, (navigator.hardwareConcurrency || 4) - 1)))
     : 1;
+  const SEARCH_MS = THREADED ? 700 : 1200;
 
   function showEngineError(event) {
     console.error("Stockfish worker error:", event?.message || event);
@@ -37,14 +36,9 @@
 
       super(url, options);
       this.__isStockfish = isStockfish;
-      this.__clockMs = INITIAL_CLOCK_MS;
-      this.__searchStartedAt = null;
 
       if (isStockfish) {
-        super.addEventListener("error", (event) => {
-          this.__searchStartedAt = null;
-          showEngineError(event);
-        });
+        super.addEventListener("error", (event) => showEngineError(event));
 
         super.addEventListener("message", (event) => {
           const payload = String(event.data ?? "");
@@ -54,11 +48,6 @@
               super.postMessage(`setoption name Threads value ${THREADS}`);
               super.postMessage("setoption name Hash value 64");
             }
-
-            if (!line.startsWith("bestmove ") || this.__searchStartedAt === null) continue;
-            const elapsed = Math.max(0, performance.now() - this.__searchStartedAt);
-            this.__clockMs = Math.max(1, this.__clockMs - elapsed) + INCREMENT_MS;
-            this.__searchStartedAt = null;
           }
         });
       }
@@ -66,18 +55,12 @@
 
     postMessage(message, transferOrOptions) {
       if (this.__isStockfish && typeof message === "string") {
-        if (message === "ucinewgame") {
-          this.__clockMs = INITIAL_CLOCK_MS;
-          this.__searchStartedAt = null;
-        }
-
-        // app.js emits a placeholder movetime command as the search trigger.
-        // Replace it with a real 120+1 clock so Stockfish's own time manager
-        // decides how long to spend on each move.
+        // app.js uses `go movetime 350` as a generic search trigger. Replace
+        // that placeholder with a short, predictable cap. Full multi-threaded
+        // Stockfish searches far more nodes within this window than the old
+        // lite/single-threaded setup, while UCI_Elo still controls move choice.
         if (/^go movetime \d+$/.test(message)) {
-          const clock = Math.max(1, Math.round(this.__clockMs));
-          this.__searchStartedAt = performance.now();
-          message = `go wtime ${clock} btime ${clock} winc ${INCREMENT_MS} binc ${INCREMENT_MS}`;
+          message = `go movetime ${SEARCH_MS}`;
         }
       }
 
@@ -95,12 +78,12 @@
       : "Stockfish 19 full single-threaded WASM",
     threaded: THREADED,
     threads: THREADS,
-    timeControl: "120+1",
+    searchMs: SEARCH_MS,
     nativeEloMin: 1320,
     nativeEloMax: 3190
   });
 
   console.info(
-    `[Chess] ${window.__CHESS_ENGINE_INFO__.engine} · threads=${THREADS} · crossOriginIsolated=${window.crossOriginIsolated}`
+    `[Chess] ${window.__CHESS_ENGINE_INFO__.engine} · threads=${THREADS} · movetime=${SEARCH_MS}ms · crossOriginIsolated=${window.crossOriginIsolated}`
   );
 })();
