@@ -1,5 +1,5 @@
 (() => {
-  const BUILD_ID = "20261004-maia-local-v2";
+  const BUILD_ID = "20261004-maia-esm-v3";
   const NativeWorker = window.Worker;
   const MAIA_MODEL_URL = new URL("./assets/maia3_5m.onnx", document.baseURI).href;
   const ORT_WASM_URL = new URL("./assets/ort/ort-wasm-simd-threaded.wasm", document.baseURI).href;
@@ -7,10 +7,12 @@
   class VersionedWorker extends NativeWorker {
     constructor(scriptURL, options) {
       const url = new URL(String(scriptURL), document.baseURI);
+      let nextOptions = options;
       if (url.pathname.endsWith("/stockfish-worker.js")) {
         url.searchParams.set("v", BUILD_ID);
+        nextOptions = { ...(options ?? {}), type: "module" };
       }
-      super(url, options);
+      super(url, nextOptions);
     }
   }
 
@@ -19,14 +21,14 @@
   window.__CHESS_ENGINE_INFO__ = Object.freeze({
     engine: "Maia3 5M",
     model: "Maia3-5M",
-    runtime: "local bundled maia3-js + local ONNX Runtime WASM",
+    runtime: "local ESM maia3-js + local ONNX Runtime WASM",
+    workerType: "module",
     humanLike: true,
     ratingConditioned: true,
     stockfishReservedForAnalysis: true,
     buildId: BUILD_ID
   });
 
-  // Warm only same-origin binary assets. Do not import Maia/ORT from a CDN.
   const warmAssets = () => {
     for (const url of [MAIA_MODEL_URL, ORT_WASM_URL]) {
       void fetch(url, {
@@ -45,6 +47,6 @@
   }
 
   console.info(
-    `[Chess] Maia3 5M local runtime · build=${BUILD_ID} · crossOriginIsolated=${window.crossOriginIsolated}`
+    `[Chess] Maia3 5M ESM runtime · build=${BUILD_ID} · crossOriginIsolated=${window.crossOriginIsolated}`
   );
 })();
