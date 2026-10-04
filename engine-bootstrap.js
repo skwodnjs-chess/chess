@@ -1,6 +1,6 @@
 (() => {
   const MAIA_MODULE_URL = "https://esm.sh/maia3-js@0.2.0/web?bundle&deps=onnxruntime-web@1.27.0";
-  const MAIA_MODEL_URL = "https://huggingface.co/cemoss17/maia3-onnx/resolve/main/maia3_5m.onnx";
+  const MAIA_MODEL_URL = new URL("./assets/maia3_5m.onnx", document.baseURI).href;
 
   window.__CHESS_ENGINE_INFO__ = Object.freeze({
     engine: "Maia3 5M",
@@ -10,17 +10,14 @@
     stockfishReservedForAnalysis: true
   });
 
-  // Start the large network/model downloads while the player is deciding on a
-  // move. The actual ONNX session is created inside the engine worker, so UI
-  // rendering stays responsive and the first AI turn usually avoids the full
-  // network download latency.
+  // Warm the module and same-origin model while the player is deciding on a
+  // move. The actual ONNX session is still created inside the engine worker.
   const warmAssets = () => {
     void import(MAIA_MODULE_URL).catch((error) => {
       console.warn("[Chess] Maia3 module warm-up failed; worker will retry.", error);
     });
     void fetch(MAIA_MODEL_URL, {
-      mode: "cors",
-      credentials: "omit",
+      credentials: "same-origin",
       cache: "force-cache"
     }).catch((error) => {
       console.warn("[Chess] Maia3 model warm-up failed; worker will retry.", error);
