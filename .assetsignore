@@ -1,0 +1,10 @@
+node_modules/
+.git/
+.github/
+.wrangler/
+package.json
+package-lock.json
+wrangler.jsonc
+maia-worker-source.js
+README.md
+.assetsignore
