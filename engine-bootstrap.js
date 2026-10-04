@@ -1,27 +1,41 @@
 (() => {
-  const MAIA_MODULE_URL = "https://esm.sh/maia3-js@0.2.0/web?bundle&deps=onnxruntime-web@1.27.0";
+  const BUILD_ID = "20261004-maia-local-v2";
+  const NativeWorker = window.Worker;
   const MAIA_MODEL_URL = new URL("./assets/maia3_5m.onnx", document.baseURI).href;
+  const ORT_WASM_URL = new URL("./assets/ort/ort-wasm-simd-threaded.wasm", document.baseURI).href;
 
+  class VersionedWorker extends NativeWorker {
+    constructor(scriptURL, options) {
+      const url = new URL(String(scriptURL), document.baseURI);
+      if (url.pathname.endsWith("/stockfish-worker.js")) {
+        url.searchParams.set("v", BUILD_ID);
+      }
+      super(url, options);
+    }
+  }
+
+  window.Worker = VersionedWorker;
+  window.__CHESS_BUILD_ID__ = BUILD_ID;
   window.__CHESS_ENGINE_INFO__ = Object.freeze({
     engine: "Maia3 5M",
     model: "Maia3-5M",
+    runtime: "local bundled maia3-js + local ONNX Runtime WASM",
     humanLike: true,
     ratingConditioned: true,
-    stockfishReservedForAnalysis: true
+    stockfishReservedForAnalysis: true,
+    buildId: BUILD_ID
   });
 
-  // Warm the module and same-origin model while the player is deciding on a
-  // move. The actual ONNX session is still created inside the engine worker.
+  // Warm only same-origin binary assets. Do not import Maia/ORT from a CDN.
   const warmAssets = () => {
-    void import(MAIA_MODULE_URL).catch((error) => {
-      console.warn("[Chess] Maia3 module warm-up failed; worker will retry.", error);
-    });
-    void fetch(MAIA_MODEL_URL, {
-      credentials: "same-origin",
-      cache: "force-cache"
-    }).catch((error) => {
-      console.warn("[Chess] Maia3 model warm-up failed; worker will retry.", error);
-    });
+    for (const url of [MAIA_MODEL_URL, ORT_WASM_URL]) {
+      void fetch(url, {
+        credentials: "same-origin",
+        cache: "force-cache"
+      }).catch((error) => {
+        console.warn("[Chess] Maia asset warm-up failed; worker will retry.", url, error);
+      });
+    }
   };
 
   if ("requestIdleCallback" in window) {
@@ -31,6 +45,6 @@
   }
 
   console.info(
-    `[Chess] Maia3 5M playing engine · crossOriginIsolated=${window.crossOriginIsolated}`
+    `[Chess] Maia3 5M local runtime · build=${BUILD_ID} · crossOriginIsolated=${window.crossOriginIsolated}`
   );
 })();
