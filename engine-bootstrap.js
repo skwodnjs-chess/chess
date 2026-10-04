@@ -1,89 +1,39 @@
 (() => {
-  const NativeWorker = window.Worker;
-  const THREADED = window.crossOriginIsolated && typeof SharedArrayBuffer !== "undefined";
-  const STOCKFISH_WASM_URL = THREADED
-    ? "https://unpkg.com/stockfish@19.0.0/bin/stockfish-19.wasm"
-    : "https://unpkg.com/stockfish@19.0.0/bin/stockfish-19-single.wasm";
-  const THREADS = THREADED
-    ? Math.max(2, Math.min(4, Math.max(1, (navigator.hardwareConcurrency || 4) - 1)))
-    : 1;
-  const SEARCH_MS = THREADED ? 700 : 1200;
+  const MAIA_MODULE_URL = "https://esm.sh/maia3-js@0.2.0/web?bundle&deps=onnxruntime-web@1.27.0";
+  const MAIA_MODEL_URL = "https://huggingface.co/cemoss17/maia3-onnx/resolve/main/maia3_5m.onnx";
 
-  function showEngineError(event) {
-    console.error("Stockfish worker error:", event?.message || event);
-    const row = document.querySelector("#status-row");
-    const status = document.querySelector("#status");
-    const dot = document.querySelector("#status-dot");
-    const badge = document.querySelector("#engine-badge");
-    if (status) status.textContent = "Stockfish 엔진 로딩에 실패했습니다.";
-    if (row) row.classList.add("visible");
-    if (dot) dot.classList.remove("active", "thinking");
-    if (badge) {
-      badge.textContent = "AI · 엔진 오류";
-      badge.setAttribute("aria-label", "Stockfish 엔진 오류");
-    }
-  }
-
-  class ChessWorker extends NativeWorker {
-    constructor(scriptURL, options) {
-      const url = new URL(String(scriptURL), document.baseURI);
-      const isStockfish = url.pathname.endsWith("/stockfish-worker.js");
-
-      if (isStockfish) {
-        // stockfish.js reads the worker URL hash as the WASM location.
-        url.hash = encodeURIComponent(STOCKFISH_WASM_URL);
-      }
-
-      super(url, options);
-      this.__isStockfish = isStockfish;
-
-      if (isStockfish) {
-        super.addEventListener("error", (event) => showEngineError(event));
-
-        super.addEventListener("message", (event) => {
-          const payload = String(event.data ?? "");
-          for (const line of payload.split(/\r?\n/)) {
-            if (line === "uciok" && THREADED) {
-              // Apply threading before app.js sends isready.
-              super.postMessage(`setoption name Threads value ${THREADS}`);
-              super.postMessage("setoption name Hash value 64");
-            }
-          }
-        });
-      }
-    }
-
-    postMessage(message, transferOrOptions) {
-      if (this.__isStockfish && typeof message === "string") {
-        // app.js uses `go movetime 350` as a generic search trigger. Replace
-        // that placeholder with a short, predictable cap. Full multi-threaded
-        // Stockfish searches far more nodes within this window than the old
-        // lite/single-threaded setup, while UCI_Elo still controls move choice.
-        if (/^go movetime \d+$/.test(message)) {
-          message = `go movetime ${SEARCH_MS}`;
-        }
-      }
-
-      if (arguments.length > 1) {
-        return super.postMessage(message, transferOrOptions);
-      }
-      return super.postMessage(message);
-    }
-  }
-
-  window.Worker = ChessWorker;
   window.__CHESS_ENGINE_INFO__ = Object.freeze({
-    engine: THREADED
-      ? "Stockfish 19 full multi-threaded WASM"
-      : "Stockfish 19 full single-threaded WASM",
-    threaded: THREADED,
-    threads: THREADS,
-    searchMs: SEARCH_MS,
-    nativeEloMin: 1320,
-    nativeEloMax: 3190
+    engine: "Maia3 5M",
+    model: "Maia3-5M",
+    humanLike: true,
+    ratingConditioned: true,
+    stockfishReservedForAnalysis: true
   });
 
+  // Start the large network/model downloads while the player is deciding on a
+  // move. The actual ONNX session is created inside the engine worker, so UI
+  // rendering stays responsive and the first AI turn usually avoids the full
+  // network download latency.
+  const warmAssets = () => {
+    void import(MAIA_MODULE_URL).catch((error) => {
+      console.warn("[Chess] Maia3 module warm-up failed; worker will retry.", error);
+    });
+    void fetch(MAIA_MODEL_URL, {
+      mode: "cors",
+      credentials: "omit",
+      cache: "force-cache"
+    }).catch((error) => {
+      console.warn("[Chess] Maia3 model warm-up failed; worker will retry.", error);
+    });
+  };
+
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(warmAssets, { timeout: 1200 });
+  } else {
+    setTimeout(warmAssets, 0);
+  }
+
   console.info(
-    `[Chess] ${window.__CHESS_ENGINE_INFO__.engine} · threads=${THREADS} · movetime=${SEARCH_MS}ms · crossOriginIsolated=${window.crossOriginIsolated}`
+    `[Chess] Maia3 5M playing engine · crossOriginIsolated=${window.crossOriginIsolated}`
   );
 })();
