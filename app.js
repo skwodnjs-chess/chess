@@ -34,8 +34,12 @@ const pieceGlyphs = {
   b: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" }
 };
 
+const DEFAULT_AI_ELO = 2000;
+const MAIA_TEMPERATURE = 0;
+const MAIA_TOP_P = 1;
+
 let gameIdCounter = 1;
-let games = [makeGameRecord("현재 게임", true, 1000)];
+let games = [makeGameRecord("현재 게임", true, DEFAULT_AI_ELO)];
 let activeGameId = games[0].id;
 let game = new Chess();
 let playerColor = "w";
@@ -72,33 +76,44 @@ function activeGame() {
   return games.find((item) => item.id === activeGameId) ?? games[0];
 }
 
-class StockfishClient {
+class MaiaClient {
   constructor() {
     this.worker = null;
     this.readyPromise = null;
     this.readyResolve = null;
     this.pending = null;
-    this.candidates = new Map();
     this.failed = false;
+    this.lastElo = DEFAULT_AI_ELO;
+    this.lastDebug = null;
+    this.lastInference = null;
+    this.lastError = null;
+  }
+
+  makeReadyPromise() {
+    this.readyPromise = new Promise((resolve) => {
+      this.readyResolve = resolve;
+    });
   }
 
   ensureWorker() {
     if (this.worker || this.failed) return;
     try {
       this.worker = new Worker("./stockfish-worker.js");
-      this.readyPromise = new Promise((resolve) => { this.readyResolve = resolve; });
+      this.makeReadyPromise();
       this.worker.addEventListener("message", (event) => this.handleMessage(String(event.data ?? "")));
-      this.worker.addEventListener("error", () => this.fail());
+      this.worker.addEventListener("error", (event) => this.fail(event?.message || "Maia worker error"));
       this.worker.postMessage("uci");
-    } catch {
-      this.fail();
+    } catch (error) {
+      this.fail(error);
     }
   }
 
-  fail() {
+  fail(error = "Maia unavailable") {
+    const message = error instanceof Error ? error.message : String(error);
     this.failed = true;
+    this.lastError = message;
     if (this.pending) {
-      this.pending.reject(new Error("Stockfish unavailable"));
+      this.pending.reject(new Error(message));
       this.pending = null;
     }
     this.worker?.terminate();
@@ -110,74 +125,77 @@ class StockfishClient {
   handleMessage(message) {
     for (const line of message.split(/\r?\n/)) {
       if (!line) continue;
+
       if (line === "uciok") {
-        this.worker?.postMessage("setoption name MultiPV value 5");
         this.worker?.postMessage("isready");
         continue;
       }
+
       if (line === "readyok") {
         this.readyResolve?.();
         this.readyResolve = null;
         continue;
       }
+
+      if (line.startsWith("info string maia-debug ")) {
+        try {
+          const payload = JSON.parse(line.slice("info string maia-debug ".length));
+          this.lastDebug = payload;
+          if (payload.phase === "predict-result") {
+            this.lastInference = payload;
+            console.info("[Chess][Maia] inference", payload);
+          }
+        } catch (error) {
+          console.warn("[Chess][Maia] malformed debug payload", line, error);
+        }
+        continue;
+      }
+
+      if (line.startsWith("info string maia-error ")) {
+        this.lastError = line.slice("info string maia-error ".length);
+        console.error("[Chess][Maia] engine error:", this.lastError);
+        continue;
+      }
+
       if (!this.pending) continue;
-      if (line.startsWith("info ")) this.captureCandidate(line);
+
       if (line.startsWith("bestmove ")) {
-        const fallback = line.split(/\s+/)[1];
-        const { resolve, legalMoves, rating, limited } = this.pending;
+        const uciMove = line.split(/\s+/)[1];
+        const { resolve, legalMoves } = this.pending;
         this.pending = null;
-        resolve(this.chooseMove(fallback, legalMoves, rating, limited));
+        resolve(legalMoves.includes(uciMove) ? uciMove : null);
       }
     }
   }
 
-  captureCandidate(line) {
-    const pv = line.match(/\bpv\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
-    const rank = line.match(/\bmultipv\s+(\d+)/);
-    const cp = line.match(/\bscore\s+cp\s+(-?\d+)/);
-    const mate = line.match(/\bscore\s+mate\s+(-?\d+)/);
-    if (!pv || !rank || (!cp && !mate)) return;
-    const score = cp ? Number(cp[1]) : (Number(mate[1]) > 0 ? 100000 : -100000);
-    this.candidates.set(Number(rank[1]), { move: pv[1], score });
-  }
-
-  chooseMove(fallback, legalMoves, rating, limited) {
-    if (limited) return legalMoves.includes(fallback) ? fallback : legalMoves[0];
-    const mistakeChance = Math.min(0.34, Math.max(0.08, 0.08 + (1200 - rating) / 2200));
-    if (legalMoves.length > 1 && Math.random() < mistakeChance) return legalMoves[Math.floor(Math.random() * legalMoves.length)];
-    const candidates = [...this.candidates.values()].filter((candidate) => legalMoves.includes(candidate.move));
-    if (!candidates.length) return legalMoves.includes(fallback) ? fallback : legalMoves[0];
-    const bestScore = Math.max(...candidates.map((candidate) => candidate.score));
-    const temperature = Math.max(85, 185 - Math.max(0, rating - 600) * 0.08);
-    const weighted = candidates.map((candidate) => ({ candidate, weight: Math.exp(-(bestScore - candidate.score) / temperature) }));
-    const total = weighted.reduce((sum, entry) => sum + entry.weight, 0);
-    let roll = Math.random() * total;
-    for (const entry of weighted) {
-      roll -= entry.weight;
-      if (roll <= 0) return entry.candidate.move;
-    }
-    return weighted[0].candidate.move;
-  }
-
   async move(fen, legalMoves, rating) {
     this.ensureWorker();
-    if (this.failed || !this.worker) throw new Error("Stockfish unavailable");
+    if (this.failed || !this.worker) throw new Error(this.lastError || "Maia unavailable");
     await this.readyPromise;
-    this.candidates.clear();
-    const limited = rating >= 1320;
-    if (limited) {
-      this.worker.postMessage("setoption name UCI_LimitStrength value true");
-      this.worker.postMessage(`setoption name UCI_Elo value ${Math.min(3190, Math.max(1320, rating))}`);
-      this.worker.postMessage("setoption name MultiPV value 1");
-    } else {
-      this.worker.postMessage("setoption name UCI_LimitStrength value false");
-      this.worker.postMessage("setoption name Skill Level value 0");
-      this.worker.postMessage("setoption name MultiPV value 5");
-    }
+
+    const effectiveRating = Math.round(
+      Math.min(3200, Math.max(400, Number.isFinite(rating) ? rating : DEFAULT_AI_ELO))
+    );
+
+    this.lastElo = effectiveRating;
+    this.lastError = null;
+
+    this.worker.postMessage(`setoption name Elo value ${effectiveRating}`);
+    this.worker.postMessage(`setoption name Temperature value ${MAIA_TEMPERATURE}`);
+    this.worker.postMessage(`setoption name TopP value ${MAIA_TOP_P}`);
+    this.worker.postMessage("setoption name MultiPV value 5");
+
+    console.info("[Chess][Maia] move request", {
+      elo: effectiveRating,
+      temperature: MAIA_TEMPERATURE,
+      topP: MAIA_TOP_P,
+      fen
+    });
+
     return new Promise((resolve, reject) => {
-      this.pending = { resolve, reject, legalMoves, rating, limited };
+      this.pending = { resolve, reject, legalMoves, rating: effectiveRating };
       this.worker.postMessage(`position fen ${fen}`);
-      this.worker.postMessage("go movetime 350");
+      this.worker.postMessage("go maia");
     });
   }
 
@@ -188,13 +206,52 @@ class StockfishClient {
       this.pending.reject(new Error("Search cancelled"));
       this.pending = null;
     }
-    this.candidates.clear();
+    this.makeReadyPromise();
     this.worker.postMessage("ucinewgame");
     this.worker.postMessage("isready");
   }
 }
 
-const engine = new StockfishClient();
+const engine = new MaiaClient();
+
+function getChessDebugState() {
+  const record = activeGame();
+  return {
+    engine: window.__CHESS_ENGINE_INFO__?.engine ?? "Maia3 5M",
+    activeGameId,
+    aiEnabled: Boolean(record?.aiEnabled),
+    selectedElo: record?.rating ?? null,
+    workerElo: engine.lastElo,
+    temperature: MAIA_TEMPERATURE,
+    topP: MAIA_TOP_P,
+    thinking,
+    started,
+    playerColor,
+    turn: game.turn(),
+    fen: game.fen(),
+    lastInference: engine.lastInference,
+    lastWorkerEvent: engine.lastDebug,
+    lastError: engine.lastError
+  };
+}
+
+window.__CHESS_DEBUG__ = Object.freeze({
+  get state() {
+    return getChessDebugState();
+  },
+  getState: getChessDebugState,
+  elo() {
+    const state = getChessDebugState();
+    const result = { selectedElo: state.selectedElo, workerElo: state.workerElo };
+    console.log("[Chess][Elo]", result);
+    return result;
+  },
+  print() {
+    const state = getChessDebugState();
+    console.log("[Chess][Debug]", state);
+    return state;
+  }
+});
 
 function isAtLatestPosition() {
   return historyIndex === positionHistory.length - 1;
@@ -383,21 +440,6 @@ function legalUciMoves() {
   return game.moves({ verbose: true }).map((move) => `${move.from}${move.to}${move.promotion ?? ""}`);
 }
 
-function chooseFallbackMove() {
-  const moves = game.moves({ verbose: true });
-  if (!moves.length) return null;
-  const scored = moves.map((move) => {
-    let score = Math.random() * 1.8;
-    if (move.captured) score += 2.5;
-    if (move.san.includes("+")) score += 1.8;
-    if (["d4", "d5", "e4", "e5"].includes(move.to)) score += 0.7;
-    return { move, score };
-  }).sort((a, b) => b.score - a.score);
-  const pool = scored.slice(0, Math.min(6, scored.length));
-  const pick = Math.random() < 0.2 ? pool[Math.floor(Math.random() * pool.length)] : pool[0];
-  return `${pick.move.from}${pick.move.to}${pick.move.promotion ?? ""}`;
-}
-
 async function requestAiMove() {
   const record = activeGame();
   if (!record.aiEnabled || !started || game.isGameOver() || game.turn() === playerColor) return;
@@ -408,12 +450,37 @@ async function requestAiMove() {
   setStatus("AI가 생각 중입니다…", "thinking");
   const legalMoves = legalUciMoves();
   let uciMove = null;
-  try { uciMove = await engine.move(game.fen(), legalMoves, record.rating); } catch { uciMove = chooseFallbackMove(); }
+
+  try {
+    uciMove = await engine.move(game.fen(), legalMoves, record.rating);
+  } catch (error) {
+    if (token !== turnToken || activeGameId !== record.id) return;
+    thinking = false;
+    engine.lastError = error instanceof Error ? error.message : String(error);
+    console.error("[Chess][Maia] move failed", error);
+    setStatus("Maia 엔진 오류가 발생했습니다. 콘솔의 __CHESS_DEBUG__.print()를 확인하세요.", "idle");
+    return;
+  }
+
   if (token !== turnToken || !started || game.isGameOver() || activeGameId !== record.id) return;
   thinking = false;
-  if (!uciMove || !legalMoves.includes(uciMove)) uciMove = chooseFallbackMove();
-  if (!uciMove) return updateGameOverStatus();
-  const move = game.move({ from: uciMove.slice(0, 2), to: uciMove.slice(2, 4), promotion: uciMove[4] || "q" });
+
+  if (!uciMove || !legalMoves.includes(uciMove)) {
+    engine.lastError = `Invalid Maia move: ${uciMove ?? "null"}`;
+    console.error("[Chess][Maia] invalid move", {
+      uciMove,
+      legalMoves,
+      debug: engine.lastInference
+    });
+    setStatus("Maia가 유효하지 않은 수를 반환했습니다. 콘솔 디버그 정보를 확인하세요.", "idle");
+    return;
+  }
+
+  const move = game.move({
+    from: uciMove.slice(0, 2),
+    to: uciMove.slice(2, 4),
+    promotion: uciMove[4] || "q"
+  });
   recordMove(move);
   renderBoard();
   if (!updateGameOverStatus()) setStatus(game.inCheck() ? "체크입니다. 당신의 차례입니다." : "당신의 차례입니다.", "active");
@@ -542,8 +609,8 @@ function syncNewGameForm() {
 function openNewGameDialog() {
   gameNameInput.value = "";
   aiEnabledInput.checked = true;
-  ratingSelect.value = "1000";
-  ratingCustomInput.value = "1000";
+  ratingSelect.value = "2000";
+  ratingCustomInput.value = "2000";
   syncNewGameForm();
   newGameDialog.showModal();
   requestAnimationFrame(() => gameNameInput.focus());
@@ -557,7 +624,7 @@ function createGameFromForm() {
   const name = gameNameInput.value.trim() || `게임 ${games.length + 1}`;
   const aiEnabled = aiEnabledInput.checked;
   const rawRating = ratingSelect.value === "custom" ? Number(ratingCustomInput.value) : Number(ratingSelect.value);
-  const rating = Math.round(Math.min(3200, Math.max(400, Number.isFinite(rawRating) ? rawRating : 1000)));
+  const rating = Math.round(Math.min(3200, Math.max(400, Number.isFinite(rawRating) ? rawRating : DEFAULT_AI_ELO)));
   saveActiveGameState();
   const record = makeGameRecord(name, aiEnabled, rating);
   games.push(record);
