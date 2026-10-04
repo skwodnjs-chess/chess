@@ -14435,10 +14435,14 @@ var Maia32 = class extends Maia3 {
 
 // maia-worker-source.js
 var MAIA_MODEL_URL = new URL("./assets/maia3_5m.onnx", self.location.href).href;
+var ORT_WASM_MJS_URL = new URL("./assets/ort/ort-wasm-simd-threaded.mjs", self.location.href).href;
 var ORT_WASM_URL = new URL("./assets/ort/ort-wasm-simd-threaded.wasm", self.location.href).href;
 _e.wasm.numThreads = 1;
 _e.wasm.proxy = false;
-_e.wasm.wasmPaths = { wasm: ORT_WASM_URL };
+_e.wasm.wasmPaths = {
+  mjs: ORT_WASM_MJS_URL,
+  wasm: ORT_WASM_URL
+};
 var maia = null;
 var loadPromise = null;
 var currentFen = "startpos";
@@ -14463,7 +14467,12 @@ async function ensureMaia() {
   if (!loadPromise) {
     const startedAt = performance.now();
     loadPromise = (async () => {
-      emitDebug({ phase: "load-start", model: MAIA_MODEL_URL, ortWasm: ORT_WASM_URL });
+      emitDebug({
+        phase: "load-start",
+        model: MAIA_MODEL_URL,
+        ortMjs: ORT_WASM_MJS_URL,
+        ortWasm: ORT_WASM_URL
+      });
       const instance = new Maia32({
         variant: "5m",
         url: MAIA_MODEL_URL,
@@ -14482,7 +14491,7 @@ async function ensureMaia() {
       emitDebug({
         phase: "load-ready",
         elapsedMs: Math.round(performance.now() - startedAt),
-        backend: "wasm",
+        backend: "wasm-external",
         ortThreads: 1
       });
       emit("info string maia-ready");
