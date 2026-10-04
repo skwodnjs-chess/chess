@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="브라우저에서 Stockfish AI와 플레이하는 체스 게임">
+  <meta name="description" content="브라우저에서 Maia AI와 플레이하는 체스 게임">
   <title>skwodnjs Chess</title>
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="./annotations.css">
@@ -36,7 +36,7 @@
     <section class="workspace" aria-labelledby="page-title">
       <header class="workspace-header">
         <h1 id="page-title">현재 게임</h1>
-        <div id="engine-badge" class="engine-badge">AI · Elo 1000</div>
+        <div id="engine-badge" class="engine-badge">AI · Elo 2000</div>
       </header>
 
       <div class="game-stage">
@@ -96,7 +96,7 @@
 
       <label class="field">
         <span class="field-label">게임 이름</span>
-        <input id="game-name-input" name="gameName" type="text" maxlength="60" placeholder="예: AI 1200 연습" autocomplete="off" required>
+        <input id="game-name-input" name="gameName" type="text" maxlength="60" placeholder="예: AI 2000 연습" autocomplete="off" required>
       </label>
 
       <div class="field field-row">
@@ -115,15 +115,15 @@
         <div class="rating-row">
           <select id="rating-select" name="ratingPreset" aria-label="AI Rating 선택">
             <option value="800">800</option>
-            <option value="1000" selected>1000</option>
+            <option value="1000">1000</option>
             <option value="1200">1200</option>
             <option value="1400">1400</option>
             <option value="1600">1600</option>
             <option value="1800">1800</option>
-            <option value="2000">2000</option>
+            <option value="2000" selected>2000</option>
             <option value="custom">직접 입력</option>
           </select>
-          <input id="rating-custom-input" class="rating-custom-input" name="ratingCustom" type="number" min="400" max="3190" step="50" value="1000" inputmode="numeric" aria-label="AI Rating 직접 입력" hidden>
+          <input id="rating-custom-input" class="rating-custom-input" name="ratingCustom" type="number" min="400" max="3190" step="50" value="2000" inputmode="numeric" aria-label="AI Rating 직접 입력" hidden>
         </div>
       </div>
 
@@ -134,9 +134,9 @@
     </form>
   </dialog>
 
-  <script src="./engine-bootstrap.js"></script>
-  <script type="module" src="./app.js"></script>
-  <script type="module" src="./annotations.js"></script>
-  <script type="module" src="./annotation-shape.js"></script>
+  <script src="./engine-bootstrap.js?v=20261004-maia-local-v2"></script>
+  <script type="module" src="./app.js?v=20261004-maia-local-v2"></script>
+  <script type="module" src="./annotations.js?v=20261004-maia-local-v2"></script>
+  <script type="module" src="./annotation-shape.js?v=20261004-maia-local-v2"></script>
 </body>
 </html>
