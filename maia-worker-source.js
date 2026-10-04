@@ -2,13 +2,18 @@ import * as ort from "onnxruntime-web";
 import { Maia3 } from "maia3-js/web";
 
 const MAIA_MODEL_URL = new URL("./assets/maia3_5m.onnx", self.location.href).href;
+const ORT_WASM_MJS_URL = new URL("./assets/ort/ort-wasm-simd-threaded.mjs", self.location.href).href;
 const ORT_WASM_URL = new URL("./assets/ort/ort-wasm-simd-threaded.wasm", self.location.href).href;
 
-// Maia3 is inference-only here. A single WASM thread avoids nested-worker/module
-// resolution issues and is sufficient for the 5M model's low-latency moves.
+// Maia3 is inference-only here. Keep ORT single-threaded and explicitly point
+// both the external Emscripten module and its WASM binary at same-origin files.
+// This avoids the embedded ORT factory path that breaks when re-bundled.
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
-ort.env.wasm.wasmPaths = { wasm: ORT_WASM_URL };
+ort.env.wasm.wasmPaths = {
+  mjs: ORT_WASM_MJS_URL,
+  wasm: ORT_WASM_URL
+};
 
 let maia = null;
 let loadPromise = null;
@@ -38,7 +43,12 @@ async function ensureMaia() {
   if (!loadPromise) {
     const startedAt = performance.now();
     loadPromise = (async () => {
-      emitDebug({ phase: "load-start", model: MAIA_MODEL_URL, ortWasm: ORT_WASM_URL });
+      emitDebug({
+        phase: "load-start",
+        model: MAIA_MODEL_URL,
+        ortMjs: ORT_WASM_MJS_URL,
+        ortWasm: ORT_WASM_URL
+      });
       const instance = new Maia3({
         variant: "5m",
         url: MAIA_MODEL_URL,
@@ -57,7 +67,7 @@ async function ensureMaia() {
       emitDebug({
         phase: "load-ready",
         elapsedMs: Math.round(performance.now() - startedAt),
-        backend: "wasm",
+        backend: "wasm-external",
         ortThreads: 1
       });
       emit("info string maia-ready");
