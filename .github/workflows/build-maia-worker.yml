@@ -33,22 +33,27 @@ jobs:
 
       - name: Verify browser bundle
         run: |
-          if grep -nE 'esm\.sh|/node/process\.mjs' stockfish-worker.js; then
-            echo 'Unexpected esm.sh or Node process shim reference found in browser worker.' >&2
+          if grep -nE 'esm\.sh|/node/process\.mjs|ort\.bundle\.min\.mjs' stockfish-worker.js; then
+            echo 'Unexpected CDN, Node shim, or embedded ORT bundle reference found.' >&2
             exit 1
           fi
-          echo 'Browser worker contains no esm.sh or /node/process.mjs reference.'
+          if ! grep -q 'ort\.wasm\.min\.mjs' stockfish-worker.js; then
+            echo 'Expected external-WASM ORT entrypoint was not bundled.' >&2
+            exit 1
+          fi
+          echo 'Browser worker uses external-WASM ORT runtime.'
 
-      - name: Vendor ONNX Runtime WASM
+      - name: Vendor ONNX Runtime module and WASM
         run: |
           mkdir -p assets/ort
+          cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs assets/ort/ort-wasm-simd-threaded.mjs
           cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm assets/ort/ort-wasm-simd-threaded.wasm
 
       - name: Commit generated browser assets
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stockfish-worker.js assets/ort/ort-wasm-simd-threaded.wasm package-lock.json
+          git add stockfish-worker.js assets/ort/ort-wasm-simd-threaded.mjs assets/ort/ort-wasm-simd-threaded.wasm package-lock.json
           if git diff --cached --quiet; then
             echo "Generated assets are already up to date."
             exit 0
