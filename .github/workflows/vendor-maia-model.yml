@@ -1,0 +1,46 @@
+name: Vendor Maia3 model
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/vendor-maia-model.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  vendor-model:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download Maia3 5M ONNX model
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -s assets/maia3_5m.onnx ]; then
+            echo "Maia3 model already present."
+            exit 0
+          fi
+          mkdir -p assets
+          curl -L --fail --retry 3 --retry-delay 2 \
+            'https://huggingface.co/cemoss17/maia3-onnx/resolve/main/maia3_5m.onnx' \
+            -o assets/maia3_5m.onnx
+          test "$(wc -c < assets/maia3_5m.onnx)" -gt 1000000
+
+      - name: Commit vendored model
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- assets/maia3_5m.onnx && git ls-files --error-unmatch assets/maia3_5m.onnx >/dev/null 2>&1; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add assets/maia3_5m.onnx
+          git commit -m 'Vendor Maia3 5M ONNX model'
+          git push
