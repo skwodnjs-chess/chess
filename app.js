@@ -172,6 +172,7 @@ class MaiaClient {
     this.ensureWorker();
     if (this.failed || !this.worker) throw new Error(this.lastError || "Maia unavailable");
     await this.readyPromise;
+    if (this.failed || !this.worker) throw new Error(this.lastError || "Maia unavailable");
 
     const effectiveRating = Math.round(
       Math.min(3200, Math.max(400, Number.isFinite(rating) ? rating : DEFAULT_AI_ELO))
