@@ -80,6 +80,8 @@ function renderArrows() {
     line.setAttribute("y2", String(to.y - uy * endInset));
     line.setAttribute("marker-end", "url(#board-arrow-head)");
     line.setAttribute("class", "annotation-arrow");
+    line.dataset.from = arrow.from;
+    line.dataset.to = arrow.to;
     svg.append(line);
   }
 
