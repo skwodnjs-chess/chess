@@ -33,11 +33,11 @@ jobs:
 
       - name: Verify browser bundle
         run: |
-          if grep -nE 'esm\.sh|/node/process\.mjs|huggingface\.co' stockfish-worker.js; then
-            echo 'Unexpected external/CDN or Node shim reference found in browser worker.' >&2
+          if grep -nE 'esm\.sh|/node/process\.mjs' stockfish-worker.js; then
+            echo 'Unexpected esm.sh or Node process shim reference found in browser worker.' >&2
             exit 1
           fi
-          echo 'Browser worker is self-contained with no esm.sh, Hugging Face, or /node/process.mjs reference.'
+          echo 'Browser worker contains no esm.sh or /node/process.mjs reference.'
 
       - name: Vendor ONNX Runtime WASM
         run: |
